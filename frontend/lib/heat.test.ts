@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_CELL_STROKE,
+  EMPTY_FILL_OPACITY,
+  FILLED_FILL_OPACITY,
   HEAT_RAMP,
   SELECTED_CELL_COLOR,
   ZERO_COLOR,
@@ -41,7 +43,7 @@ describe("палитра", () => {
   });
 
   it("обводка пустых ячеек и выбранной ячейки — смысловые цвета, не белые", () => {
-    expect(EMPTY_CELL_STROKE).toBe("#7C8794");
+    expect(EMPTY_CELL_STROKE).toContain("124, 135, 148");
     expect(SELECTED_CELL_COLOR).toBe("#2563EB");
     expect(ZERO_COLOR).toBe("#E6EAEF");
   });
@@ -115,8 +117,15 @@ describe("heatColorExpression", () => {
 });
 
 describe("правила отрисовки ячеек", () => {
-  it("пустые ячейки рисуются плотно, непустые — полупрозрачно", () => {
-    expect(heatFillOpacityExpression()).toEqual(["case", ["==", ["get", "count"], 0], 1, 0.75]);
+  it("пустые ячейки почти прозрачны, непустые — полупрозрачны, чтобы подложка читалась", () => {
+    expect(heatFillOpacityExpression()).toEqual([
+      "case",
+      ["==", ["get", "count"], 0],
+      EMPTY_FILL_OPACITY,
+      FILLED_FILL_OPACITY,
+    ]);
+    expect(EMPTY_FILL_OPACITY).toBeLessThan(FILLED_FILL_OPACITY);
+    expect(FILLED_FILL_OPACITY).toBeLessThanOrEqual(0.6);
   });
 
   it("смысл пустой ячейки несёт обводка, а не заливка", () => {

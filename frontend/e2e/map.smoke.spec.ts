@@ -456,6 +456,34 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   expect(lines.length).toBe(gridBody.meta.cell_count + 1);
 });
 
+test("тепловой слой не скрывает подложку: заливка полупрозрачная", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  const opacity = await page.evaluate(
+    () =>
+      (
+        window.__geopulsMap as unknown as {
+          getPaintProperty: (layer: string, name: string) => unknown;
+        }
+      ).getPaintProperty("cells-fill", "fill-opacity") as unknown[],
+  );
+
+  // Выражение вида ["case", ["==", ["get","count"], 0], <пустые>, <непустые>]
+  const empties = Number(opacity[2]);
+  const filled = Number(opacity[3]);
+
+  expect(empties, "пустые ячейки не должны закрывать подложку сплошной заливкой").toBeLessThanOrEqual(
+    0.2,
+  );
+  expect(filled, "классы плотности должны быть полупрозрачными").toBeLessThanOrEqual(0.5);
+  expect(empties).toBeLessThan(filled);
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
