@@ -22,6 +22,8 @@ from typing import Any
 
 import httpx
 
+from geopuls.console import enable_utf8_console
+
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 #: Требование политики Nominatim: понятный User-Agent с контактом.
 USER_AGENT = "Geopuls/0.1 (city boundary import; contact: stanislav.golis@yandex.ru)"
@@ -152,6 +154,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    enable_utf8_console()
     args = parse_args(argv)
 
     if args.out.exists() and not args.force:

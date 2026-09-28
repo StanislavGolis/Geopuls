@@ -28,13 +28,9 @@ from typing import Any, Self
 
 import osmium
 
-from geopuls.categories import (
-    EXPLORATION_KEYS,
-    MVP_CATEGORIES,
-    has_address,
-    is_poi_candidate,
-    match_categories,
-)
+from geopuls.categories import EXPLORATION_KEYS, MVP_CATEGORIES, has_address, is_poi_candidate, match_categories
+from geopuls.console import enable_utf8_console
+from geopuls.osmfile import read_osm_timestamp
 
 EARTH_RADIUS_KM = 6371.0088
 
@@ -281,19 +277,6 @@ class CoverageReport:
         return "\n".join(lines)
 
 
-def read_osm_timestamp(path: Path) -> str | None:
-    """Дата данных из заголовка PBF, если она там записана."""
-    try:
-        header = osmium.io.Reader(str(path)).header()
-        for key in ("osmosis_replication_timestamp", "timestamp"):
-            value = header.get(key)
-            if value:
-                return str(value)
-    except Exception:  # noqa: BLE001 — отсутствие заголовка не должно ломать отчёт
-        return None
-    return None
-
-
 def build_report(
     *,
     city: str,
@@ -353,6 +336,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    enable_utf8_console()
     args = parse_args(argv)
     if not args.pbf.exists():
         print(f"Файл не найден: {args.pbf}. См. tools/fetch-osm-extract.ps1 и data/README.md")

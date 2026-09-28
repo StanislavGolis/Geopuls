@@ -41,6 +41,10 @@ data/processed/*
 *.pmtiles
 *.mbtiles
 
+# Исключение: крошечная PBF-фикстура для тестов импортёра (518 байт, генерируется
+# помощником backend/tests/fixtures/make_mini_pbf.py)
+!backend/tests/fixtures/*.osm.pbf
+
 # ── IDE / OS ─────────────────────────────────────────────────────────────────
 .idea/
 .vscode/*

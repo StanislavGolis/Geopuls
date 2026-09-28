@@ -37,6 +37,27 @@ uv run uvicorn geopuls.main:app --reload --port 8000
 | GET | `/version` | версии приложения, Python и ядра H3 |
 | GET | `/docs` | OpenAPI-документация |
 
+## Тесты
+
+```bash
+uv run pytest                      # юнит-тесты, БД не нужна; интеграционные пропускаются
+```
+
+Интеграционные тесты (сид, схема, импорт POI) работают на **отдельной** базе: они чистят таблицы,
+поэтому `conftest.py` откажется запускать их против базы без `test` в имени.
+
+```powershell
+# из корня репозитория: создаёт geopuls_test и применяет миграции
+pwsh -File tools/init-test-db.ps1
+
+cd backend
+$env:GEOPULS_CI_DB='1'
+uv run pytest                      # интеграционные тесты на geopuls_test
+```
+
+Свою базу можно указать явно: `$env:GEOPULS_TEST_DATABASE_URL='postgresql+asyncpg://...'` (имя базы
+обязательно должно содержать `test`).
+
 ## Docker
 
 ```bash

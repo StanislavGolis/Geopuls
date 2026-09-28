@@ -57,6 +57,29 @@ uv run python -m geopuls.importers.boundary --city "Томск" --out ..\data\ra
 кэшируется в файл вместе с лицензией ODbL и `osm_relation_id`. Обоснование выбора источника —
 `docs/decisions/0004-city-boundary.md`.
 
+## Импорт POI (Этап 2)
+
+Полный цикл: сканирование выгрузки → файл-кандидатов (рядом с PBF) → запись в БД.
+
+```powershell
+cd backend
+# один проход по выгрузке обслуживает все активные города (отбор по объединению их bbox)
+uv run python -m geopuls.importers.poi --pbf ..\data\raw\siberian-fed-district-260927.osm.pbf
+
+# только сканирование и отчёт (без записи в БД)
+uv run python -m geopuls.importers.poi --pbf ..\data\raw\... --dry-run
+
+# повторная запись из готового файла-кандидатов — секунды вместо десятков минут
+uv run python -m geopuls.importers.poi --from-dump ..\data\raw\....poi-candidates.jsonl
+
+# быстрая проверка на части данных (мягкое удаление в этом режиме не выполняется)
+uv run python -m geopuls.importers.poi --pbf ..\data\raw\... --limit 2000
+```
+
+Что происходит при импорте: upsert в `pois` + связи `poi_categories`, расчёт H3-индексов
+(res 9 и 8), мягкое удаление исчезнувших из OSM объектов (`is_active = false`), запись
+`data_versions` и журнала `import_runs`. Механика и обоснование — `docs/decisions/0005-poi-import.md`.
+
 ## Что где лежит
 
 | Каталог | Назначение | В git |

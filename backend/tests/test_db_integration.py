@@ -1,60 +1,31 @@
 """Интеграционные тесты схемы и сидирования на живой PostGIS.
 
-Включаются только при ``GEOPULS_CI_DB=1``: в CI поднят сервис PostGIS и применены миграции
-(шаги workflow). Локально без БД тесты помечаются как пропущенные.
+Включаются только при ``GEOPULS_CI_DB=1``: в CI создаётся отдельная тестовая база и применяются
+миграции (шаги workflow). Локально без БД тесты помечаются как пропущенные.
+
+Фикстуры `engine` / `clean_engine` и параметры города берутся из `conftest.py` — они работают
+только с базой, в имени которой есть `test`, чтобы тесты не могли очистить рабочую базу.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from conftest import tomsk_city_params
 from geopuls.categories import MVP_CATEGORIES
-from geopuls.config import get_settings
-from geopuls.db import create_engine, session_scope
-from geopuls.importers.boundary import load_boundary
-from geopuls.seed import build_city_params, seed_categories, seed_city
+from geopuls.db import session_scope
+from geopuls.seed import seed_categories, seed_city
 
-FIXTURE = Path(__file__).parent / "fixtures" / "tomsk-boundary.json"
 DB_TESTS_ENABLED = os.getenv("GEOPULS_CI_DB") == "1"
 
 pytestmark = pytest.mark.skipif(not DB_TESTS_ENABLED, reason="нужна тестовая БД (GEOPULS_CI_DB=1)")
 
-TRUNCATE = "TRUNCATE pois, poi_categories, cell_stats, city_cells, cities, categories RESTART IDENTITY CASCADE"
-
-
-@pytest.fixture
-async def engine() -> AsyncIterator[AsyncEngine]:
-    created = create_engine(get_settings())
-    try:
-        yield created
-    finally:
-        await created.dispose()
-
-
-@pytest.fixture
-async def clean_engine(engine: AsyncEngine) -> AsyncIterator[AsyncEngine]:
-    async with session_scope(engine) as session:
-        await session.execute(text(TRUNCATE))
-    yield engine
-
-
-def tomsk_params():  # type: ignore[no-untyped-def]
-    """Параметры сида Томска из фикстуры границы (используется несколькими тестами)."""
-    return build_city_params(
-        slug="tomsk",
-        name="Томск",
-        region="Томская область",
-        timezone="Asia/Tomsk",
-        h3_res=9,
-        boundary=load_boundary(FIXTURE),
-    )
+tomsk_params = tomsk_city_params
 
 
 async def test_schema_present(clean_engine: AsyncEngine) -> None:

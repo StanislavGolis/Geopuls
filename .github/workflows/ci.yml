@@ -28,13 +28,16 @@ jobs:
           --health-retries 5
     env:
       GEOPULS_CI_DB: "1"
-      GEOPULS_DATABASE_URL: postgresql+asyncpg://geopuls:geopuls@localhost:5432/geopuls
+      # Тесты работают с отдельной базой: они чистят таблицы, рабочую БД трогать нельзя
+      GEOPULS_DATABASE_URL: postgresql+asyncpg://geopuls:geopuls@localhost:5432/geopuls_test
     steps:
       - uses: actions/checkout@v4
       - name: Установить uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - name: Создать тестовую БД
+        run: PGPASSWORD=geopuls psql -h localhost -U geopuls -d geopuls -c "CREATE DATABASE geopuls_test"
       - name: Установить зависимости
         run: uv sync --locked
       - name: Применить миграции

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from geopuls.categories import MVP_CATEGORIES
 from geopuls.config import get_settings
+from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
 from geopuls.importers.boundary import CityBoundary, load_boundary
 from geopuls.models import Category
@@ -169,6 +170,7 @@ async def run(args: argparse.Namespace, engine: AsyncEngine) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    enable_utf8_console()
     args = parse_args(argv)
     engine = create_engine(get_settings())
 
