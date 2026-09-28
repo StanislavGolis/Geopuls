@@ -1,0 +1,21 @@
+# Cron для сервера ГЕОПУЛЬС. Установка:
+#   install -m 644 infra/ops/cron.geopuls /etc/cron.d/geopuls
+#   mkdir -p /var/log/geopuls
+# (файл в /etc/cron.d требует перевод строки в конце файла и поля пользователя — они указаны ниже)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Обновление данных: воскресенье, 02:30 (§9.2 ТЗ: еженедельно, ночью)
+30 2 * * 0 root cd /opt/geopuls && bash infra/ops/refresh-data.sh >> /var/log/geopuls/refresh.log 2>&1
+
+# Резервная копия БД: ежедневно, 03:20 (храним 14 дней)
+20 3 * * * root cd /opt/geopuls && bash infra/ops/backup.sh >> /var/log/geopuls/backup.log 2>&1
+
+# Проверка копии восстановлением: 1-е число месяца, 04:20 (DoD §11.1)
+20 4 1 * * root cd /opt/geopuls && bash infra/ops/verify-backup.sh >> /var/log/geopuls/verify-backup.log 2>&1
+
+# Мониторинг: каждые 5 минут (§9.3)
+*/5 * * * * root cd /opt/geopuls && bash infra/ops/monitor.sh >> /var/log/geopuls/monitor.log 2>&1
+
+# Ротация логов cron-задач: ежемесячно, чтобы диск не рос молча
+30 5 1 * * root find /var/log/geopuls -name '*.log' -size +50M -exec truncate -s 0 {} \;
