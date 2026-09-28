@@ -27,7 +27,8 @@ services:
       GEOPULS_LOG_LEVEL: ${GEOPULS_LOG_LEVEL:-INFO}
       GEOPULS_GIT_SHA: ${GEOPULS_GIT_SHA:-}
       GEOPULS_CORS_ORIGINS: '["http://localhost:${WEB_PORT:-3000}"]'
-      GEOPULS_BASEMAP_STYLE_URL: ${GEOPULS_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+      GEOPULS_BASEMAP_STYLE_URL: ${GEOPULS_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/positron}
+      GEOPULS_LEGEND_CLASSES: ${GEOPULS_LEGEND_CLASSES:-4}
     depends_on:
       db:
         condition: service_healthy
@@ -51,10 +52,10 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-8000}}
-        NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+        NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/positron}
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-8000}}
-      NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+      NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/positron}
     depends_on:
       api:
         condition: service_healthy

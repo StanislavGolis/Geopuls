@@ -12,7 +12,13 @@ import {
 } from "maplibre-gl";
 
 import type { CellsResponse, CityMeta } from "@/lib/api";
-import { heatColorExpression, resolutionForZoom } from "@/lib/heat";
+import {
+  SELECTED_CELL_COLOR,
+  heatColorExpression,
+  heatFillOpacityExpression,
+  heatOutlineColorExpression,
+  resolutionForZoom,
+} from "@/lib/heat";
 
 /**
  * URL воркера MapLibre. Файлы кладутся в `public/` скриптом `scripts/copy-maplibre-worker.mjs`
@@ -50,6 +56,8 @@ export type MapViewProps = {
   city: CityMeta;
   /** Данные теплового слоя (null — ещё грузятся). */
   cells: CellsResponse | null;
+  /** Идёт загрузка: сообщаем скринридерам через `aria-busy`. */
+  busy?: boolean;
   /** Карта сообщает наружу, какое разрешение соответствует текущему зуму. */
   onResolutionChange: (res: 8 | 9) => void;
   /** Клик по ячейке: наружу уходит H3-индекс (список объектов открывает контейнер). */
@@ -107,6 +115,7 @@ function emptyCollection(): GeoJSON.FeatureCollection {
 export default function MapView({
   city,
   cells,
+  busy = false,
   onResolutionChange,
   onCellSelect,
   onViewChange,
@@ -178,8 +187,9 @@ export default function MapView({
           "fill-color": heatColorExpression(
             latestCellsRef.current?.meta.density_breaks ?? null,
           ) as never,
-          "fill-opacity": 0.75,
-          "fill-outline-color": "rgba(255, 255, 255, 0.35)",
+          // Пустые ячейки — самостоятельный класс: рисуются плотно и с смысловой обводкой
+          "fill-opacity": heatFillOpacityExpression() as never,
+          "fill-outline-color": heatOutlineColorExpression() as never,
         },
       });
 
@@ -188,7 +198,7 @@ export default function MapView({
         id: SELECTED_LAYER,
         type: "line",
         source: SELECTED_SOURCE,
-        paint: { "line-color": "#0f172a", "line-width": 2.5 },
+        paint: { "line-color": SELECTED_CELL_COLOR, "line-width": 2 },
       });
 
       map.on("mouseenter", CELLS_LAYER, () => {
@@ -224,7 +234,9 @@ export default function MapView({
       style: styleUrl,
       center: initialView ? [initialView.lon, initialView.lat] : [city.center.lon, city.center.lat],
       zoom: initialView?.zoom ?? 12,
-      attributionControl: { compact: true },
+      // Атрибуция вынесена в постоянную строку над картой (дизайн-спека §4.7): компактный контрол
+      // MapLibre прячет текст за иконкой, а отдельный футер конкурирует с легендой внизу экрана
+      attributionControl: false,
       // Канвас читается для экспорта PNG: без этого буфер WebGL уже очищен и снимок пустой
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
@@ -350,9 +362,8 @@ export default function MapView({
       </div>
     );
   }
-
   return (
-    <div className="map__canvas" ref={containerRef}>
+    <div className="map__canvas" ref={containerRef} aria-busy={busy}>
       {basemapWarning && (
         <div className="map__banner" data-testid="basemap-warning">
           {basemapWarning}

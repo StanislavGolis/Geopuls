@@ -10,8 +10,9 @@ export const metadata: Metadata = {
     "Помогает оценить конкурентную среду и выбрать район для открытия точки.",
 };
 
+// Светлая подложка не конкурирует с тепловым слоем (дизайн-спека §4.3, ADR 0002)
 const BASEMAP_STYLE_URL =
-  process.env.NEXT_PUBLIC_BASEMAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty";
+  process.env.NEXT_PUBLIC_BASEMAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/positron";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -22,22 +23,10 @@ export default async function HomePage({ searchParams }: PageProps) {
   // Состояние карты живёт в URL: одной ссылкой можно поделиться (раздел 4.3 ТЗ)
   const initialState = parseUrlState(params);
 
+  // Атрибуция и дисклеймер — постоянной строкой внутри карты (см. MapExplorer), а не футером
   return (
     <main className="app">
       <MapExplorer styleUrl={BASEMAP_STYLE_URL} initialState={initialState} />
-
-      <div className="disclaimer">
-        Данные © OpenStreetMap contributors (ODbL). Показаны только объекты, размеченные сообществом, —
-        это не прогноз трафика и не оценка доходности.{" "}
-        <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">
-          Сообщить об объекте
-        </a>
-      </div>
-
-      <footer className="footer">
-        Подложка: OpenFreeMap © OpenMapTiles · данные OpenStreetMap · плотность — по сетке Uber H3 ·
-        ГЕОПУЛЬС, 2026
-      </footer>
     </main>
   );
 }

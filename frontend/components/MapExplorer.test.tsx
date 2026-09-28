@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MapExplorer from "./MapExplorer";
 import { ApiError, type CategoryMeta, type CellsResponse, type CityMeta } from "@/lib/api";
+import { cellsCacheKey, saveCells } from "@/lib/cache";
 import { EMPTY_URL_STATE } from "@/lib/urlState";
 
 // Карта тянет WebGL — в jsdom подменяем её заглушкой и проверяем передачу данных
@@ -129,6 +130,8 @@ beforeEach(() => {
   apiMock.fetchCells.mockResolvedValue(CELLS);
   apiMock.fetchPois.mockResolvedValue(POIS);
   window.history.replaceState(null, "", "/");
+  // Кэш последнего ответа живёт в sessionStorage и переживает тесты — начинаем с чистого
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -144,9 +147,10 @@ describe("MapExplorer", () => {
 
     const map = await screen.findByTestId("map");
     expect(map.textContent).toContain("features=1");
-    expect(screen.getByTestId("data-version").textContent).toContain("Данные OSM на 2026-09-27");
-    expect(screen.getByTestId("resolution").textContent).toContain("сетка res 9");
+    expect(screen.getByTestId("data-version").textContent).toContain("27.09.2026");
+    expect(screen.getByTestId("resolution").textContent).toContain("res 9");
     expect(screen.getByText("25.6 – 42.7")).toBeTruthy();
+    expect(screen.getByTestId("attribution").textContent).toContain("OpenFreeMap");
   });
 
   it("по умолчанию выбирает категорию, по которой есть данные", async () => {
@@ -187,19 +191,33 @@ describe("MapExplorer", () => {
 
   it("показывает ошибку API и умеет повторить запрос", async () => {
     apiMock.fetchCells.mockRejectedValue(
-      new ApiError(503, "Сервис недоступен", "нет собранной сетки"),
+      new ApiError(500, "Сервис недоступен", "внутренняя ошибка"),
     );
 
     render(<MapExplorer styleUrl="style.json" />);
 
     const errorCard = await screen.findByTestId("error");
     expect(errorCard.textContent).toContain("Сервис недоступен");
-    expect(errorCard.textContent).toContain("Данные для города ещё не собраны");
 
     const callsBefore = apiMock.fetchCells.mock.calls.length;
     screen.getByRole("button", { name: "Повторить" }).click();
 
     await waitFor(() => expect(apiMock.fetchCells.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("для 503 показывает человеческое объяснение, а не техническую ошибку", async () => {
+    apiMock.fetchCells.mockRejectedValue(
+      new ApiError(503, "Сервис недоступен", "нет собранной сетки"),
+    );
+
+    render(<MapExplorer styleUrl="style.json" />);
+
+    const errorCard = await screen.findByTestId("error");
+    expect(errorCard.textContent).toContain("Данные для этого города ещё не собраны");
+    expect(errorCard.textContent).toContain("Мы работаем над этим");
+    // Технические подробности (команды импорта) пользователю не показываем
+    expect(errorCard.textContent).not.toContain("geopuls.aggregate");
+    expect(screen.getByRole("button", { name: "Выбрать другой город" })).toBeTruthy();
   });
 
   it("при потере связи подсказывает проверить интернет", async () => {
@@ -209,6 +227,21 @@ describe("MapExplorer", () => {
 
     const errorCard = await screen.findByTestId("error");
     expect(errorCard.textContent).toContain("Проверьте соединение с интернетом");
+  });
+
+  it("при потере связи показывает последние загруженные данные и баннер офлайн-режима", async () => {
+    // Кэш как после успешной загрузки: сетка уже была получена
+    saveCells(cellsCacheKey("tomsk", "cafe", 9), CELLS);
+    apiMock.fetchCells.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
+
+    render(<MapExplorer styleUrl="style.json" />);
+
+    const offline = await screen.findByTestId("offline");
+    expect(offline.textContent).toContain("Нет связи с сервисом");
+    const map = await screen.findByTestId("map");
+    expect(map.textContent).toContain("features=1");
+    // Карточки ошибки нет: данные показываем, о проблеме сообщает баннер
+    expect(screen.queryByTestId("error")).toBeNull();
   });
 
   it("клик по ячейке открывает список объектов и попадает в адресную строку", async () => {
@@ -286,7 +319,9 @@ describe("MapExplorer", () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
 
-    screen.getByTestId("export-csv").click();
+    // CSV живёт в меню «Экспорт» — сначала раскрываем его (дизайн-спека §4.9)
+    fireEvent.click(screen.getByTestId("export"));
+    fireEvent.click(await screen.findByTestId("export-csv"));
 
     await waitFor(() => expect(blobs).toHaveLength(1));
     const text = await blobs[0].text();

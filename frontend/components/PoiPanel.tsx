@@ -1,8 +1,10 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, type PoiItem, type PoisMeta, fetchPois } from "@/lib/api";
+import { pluralObjects } from "@/lib/format";
 
 export type PoiPanelProps = {
   city: string;
@@ -69,9 +71,9 @@ export default function PoiPanel({
   return (
     <section className="poi-panel" aria-label="Объекты в выбранной ячейке" data-testid="poi-panel">
       <header className="poi-panel__head">
-        <strong className="poi-panel__title">Объекты в ячейке</strong>
+        <span className="poi-panel__title">Объекты в ячейке</span>
         <span className="poi-panel__count" data-testid="poi-count">
-          {status === "ready" && meta ? `${meta.total} шт.` : ""}
+          {status === "ready" && meta ? pluralObjects(meta.total) : ""}
         </span>
         <button
           type="button"
@@ -79,9 +81,13 @@ export default function PoiPanel({
           onClick={onClose}
           aria-label="Закрыть список объектов"
         >
-          ×
+          <X size={18} aria-hidden="true" />
         </button>
       </header>
+
+      <p className="poi-panel__cell mono" title="Ячейка сетки Uber H3">
+        {cell}
+      </p>
 
       {status === "loading" && <p className="poi-panel__note">Загружаем объекты…</p>}
 

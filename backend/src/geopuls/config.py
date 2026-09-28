@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,8 +34,13 @@ class Settings(BaseSettings):
     geofabrik_pbf_url: str = "https://download.geofabrik.de/russia/siberian-fed-district-latest.osm.pbf"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
 
-    # Подложка карты отдаётся фронтенду (см. ADR 0002)
-    basemap_style_url: str = "https://tiles.openfreemap.org/styles/liberty"
+    # Подложка карты отдаётся фронтенду (см. ADR 0002: светлая подложка не конкурирует с тепловым слоем)
+    basemap_style_url: str = "https://tiles.openfreemap.org/styles/positron"
+
+    # Число классов легенды плотности (`density_breaks` = 0 + N классов; ADR 0006, дизайн-спека §2.5).
+    # По умолчанию 4: на реальных данных Томска плотность дискретна, при большем числе классов
+    # часть классов получается пустой.
+    legend_classes: int = Field(default=4, ge=2, le=6)
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

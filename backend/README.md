@@ -26,7 +26,8 @@ uv run uvicorn geopuls.main:app --reload --port 8000
 | `GEOPULS_GIT_SHA` | коммит сборки, отдаётся в `/version` | — |
 | `GEOPULS_CORS_ORIGINS` | JSON-массив origin'ов фронтенда | `["http://localhost:3000"]` |
 | `GEOPULS_GEOFABRIK_PBF_URL` | выгрузка OSM (см. ADR 0003) | Siberian FD |
-| `GEOPULS_BASEMAP_STYLE_URL` | стиль подложки для фронтенда | OpenFreeMap Liberty |
+| `GEOPULS_BASEMAP_STYLE_URL` | стиль подложки для фронтенда (светлый, чтобы не конкурировать с тепловым слоем) | OpenFreeMap `positron` |
+| `GEOPULS_LEGEND_CLASSES` | число классов легенды плотности (0 + N; 2…6) | `4` |
 
 ## Эндпоинты
 

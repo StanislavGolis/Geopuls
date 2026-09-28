@@ -7,13 +7,32 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import text
 
-from geopuls.aggregate import compute_density_breaks
+from geopuls.aggregate import LEGEND_CLASSES, compute_density_breaks
 from geopuls.api.deps import SessionDep, load_data_version, require_category, require_city
 from geopuls.api.geojson import cell_feature, h3_text, make_etag, parse_bbox
 from geopuls.api.problems import DATA_CACHE_CONTROL, ProblemException
 from geopuls.api.schemas import CellsMeta, CellsResponse, ProblemOut
 
 router = APIRouter(prefix="/api/v1", tags=["cells"])
+
+#: Допустимое число классов легенды: 0 + N классов плотности (дизайн-спека §2.5).
+MIN_LEGEND_CLASSES = 2
+MAX_LEGEND_CLASSES = 6
+
+
+def legend_classes_from(settings: object | None) -> int:
+    """Сколько классов рисовать в легенде: значение из настроек, иначе значение по умолчанию.
+
+    Число классов — параметр, а не константа: на реальных данных плотность дискретна, и при
+    завышенном числе классов часть классов получается пустой (ADR 0006).
+    """
+    value = getattr(settings, "legend_classes", LEGEND_CLASSES)
+    try:
+        classes = int(value)
+    except (TypeError, ValueError):
+        return LEGEND_CLASSES
+    return classes if MIN_LEGEND_CLASSES <= classes <= MAX_LEGEND_CLASSES else LEGEND_CLASSES
+
 
 CELLS_SQL = """
 SELECT cs.h3_index, cs.poi_count, cs.density, cs.has_address_ratio
@@ -115,6 +134,7 @@ async def get_cells(
 
     densities = [float(row["density"]) for row in rows if row["poi_count"] > 0]
     version = await load_data_version(session)
+    classes = legend_classes_from(getattr(request.app.state, "settings", None))
     meta = CellsMeta(
         city=city,
         category=category,
@@ -125,7 +145,7 @@ async def get_cells(
         non_empty_count=len(densities),
         poi_count=sum(int(row["poi_count"]) for row in rows),
         max_density=round(max(densities), 2) if densities else 0.0,
-        density_breaks=compute_density_breaks(densities),
+        density_breaks=compute_density_breaks(densities, classes=classes),
         bbox_filter=bbox,
     )
 

@@ -87,3 +87,8 @@ PNG- и PDF-представлений, обновляться вместе с �
 **Где применяется:** параметр и палитра — этап 7c (`aggregate.compute_density_breaks` + конфиг,
 `frontend/lib/heat.ts`, unit- и live-тесты, E2E-проверки длины `density_breaks`).
 
+**Применено 28.09.2026:** `GEOPULS_LEGEND_CLASSES` (2…6, по умолчанию 4) в настройках API и CLI
+агрегации; фронтенд строит цвета и подписи по длине `density_breaks` (`heatColors`, `legendItems`),
+палитра YlOrRd — 4 класса берут ступени `heat-1, heat-3, heat-4, heat-5`. Проверено тестами:
+бэкенд — `compute_density_breaks` на 2–6 классах, фронтенд — легенда и раскраска на 4 и 6 классах.
+

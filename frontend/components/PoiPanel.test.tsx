@@ -79,7 +79,7 @@ describe("PoiPanel", () => {
       res: 9,
       category: "cafe",
     });
-    expect(screen.getByTestId("poi-count").textContent).toBe("1 шт.");
+    expect(screen.getByTestId("poi-count").textContent).toBe("1 объект");
     expect(screen.getByText("Surf Coffee")).toBeTruthy();
     expect(screen.getByText("пр. Ленина, 10")).toBeTruthy();
     // Показываем русское имя категории, а не slug из API

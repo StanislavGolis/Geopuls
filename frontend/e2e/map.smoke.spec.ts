@@ -133,7 +133,7 @@ test("карта рисует подложку и тепловой слой То
 
   await expect(page.getByTestId("basemap-warning")).toHaveCount(0);
   await expect(page.getByTestId("error")).toHaveCount(0);
-  await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
+  await expect(page.getByTestId("data-version")).toContainText(/\d{2}\.\d{2}\.\d{4}/);
 
   const realErrors = consoleErrors.filter((text) => !text.includes("favicon"));
   expect(realErrors, `ошибки в консоли: ${realErrors.join(" | ")}`).toHaveLength(0);
@@ -196,7 +196,7 @@ test("переключение категории меняет тепловой 
     { timeout: 30_000 },
   );
 
-  await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
+  await expect(page.getByTestId("data-version")).toContainText(/\d{2}\.\d{2}\.\d{4}/);
 });
 
 /** Ячейки с объектами, отсортированные по количеству: из них выбираем точку клика. */
@@ -262,7 +262,7 @@ test("клик по ячейке показывает объекты, подсв
     null,
     { timeout: 30_000 },
   );
-  await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
+  await expect(page.getByTestId("data-version")).toContainText(/\d{2}\.\d{2}\.\d{4}/);
 
   // Сетку выбирает зум, и она меняется после подгонки по границам города: берём кандидатов
   // из обеих сеток, а точку выбираем по той ячейке, что реально отрисована под курсором
@@ -331,7 +331,7 @@ test("клик по ячейке показывает объекты, подсв
 
   const panel = page.getByTestId("poi-panel");
   await expect(panel).toBeVisible();
-  await expect(page.getByTestId("poi-count")).toContainText("шт.");
+  await expect(page.getByTestId("poi-count")).toContainText(/объект/);
   await expect(panel.getByRole("link", { name: "OpenStreetMap" }).first()).toBeVisible();
   await expect(panel).not.toContainText("нет размеченных объектов");
 
@@ -377,7 +377,7 @@ test("ссылка с состоянием открывает тот же кад
   // Список объектов открывается сразу по ссылке
   const panel = page.getByTestId("poi-panel");
   await expect(panel).toBeVisible();
-  await expect(page.getByTestId("poi-count")).toContainText("шт.");
+  await expect(page.getByTestId("poi-count")).toContainText(/объект/);
 
   // Кадр восстанавливается из URL, а не по границам города
   const view = await page.evaluate(() => {
@@ -411,8 +411,10 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
     timeout: 30_000,
   });
   await page.waitForFunction(() => !window.__geopulsMap!.isMoving(), null, { timeout: 30_000 });
-  await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
+  await expect(page.getByTestId("data-version")).toContainText(/\d{2}\.\d{2}\.\d{4}/);
 
+  // Форматы выбираются в меню «Экспорт» (дизайн-спека §4.9)
+  await page.getByTestId("export").click();
   const [png] = await Promise.all([
     page.waitForEvent("download"),
     page.getByTestId("export-png").click(),
@@ -431,6 +433,7 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
     "снимок с подложкой не может весить как пустая картинка",
   ).toBeGreaterThan(20_000);
 
+  await page.getByTestId("export").click();
   const [csv] = await Promise.all([
     page.waitForEvent("download"),
     page.getByTestId("export-csv").click(),
@@ -451,5 +454,78 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   expect(lines[0]).toBe("h3,count,density_poi_per_km2,has_address_ratio,lat,lon");
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
   expect(lines.length).toBe(gridBody.meta.cell_count + 1);
+});
+
+test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  const line = page.getByTestId("attribution");
+  await expect(line).toBeVisible();
+  // Три обязательных упоминания: данные, подложка, ссылка на исправление (ADR 0002)
+  await expect(line).toContainText("OpenStreetMap contributors");
+  await expect(line).toContainText("OpenFreeMap");
+  await expect(line.getByRole("link", { name: "Сообщить об ошибке" })).toHaveAttribute(
+    "href",
+    "https://www.openstreetmap.org/fixthemap",
+  );
+
+  // Легенда стоит над строкой, а не поверх неё (дизайн-спека §4.4)
+  const legendBox = await page.locator(".legend").boundingBox();
+  const lineBox = await line.boundingBox();
+  expect(legendBox, "легенда должна быть видна").not.toBeNull();
+  expect(lineBox, "строка атрибуции должна быть видна").not.toBeNull();
+  expect(legendBox!.y + legendBox!.height).toBeLessThanOrEqual(lineBox!.y + 1);
+
+  // Контрол атрибуции MapLibre отключён: текст показываем мы, а не «иконка i»
+  await expect(page.locator(".maplibregl-ctrl-attrib")).toHaveCount(0);
+
+  await page.screenshot({ path: "e2e/screenshots/desktop-1280x800.png" });
+});
+
+test("мобильная вёрстка: чипы категорий, свёрнутая легенда, иконочные кнопки", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Категория выбирается чипами, селект скрыт стилями
+  await expect(page.getByTestId("chip-cafe")).toBeVisible();
+  await expect(page.getByLabel("Категория")).toBeHidden();
+
+  // Легенда свёрнута в кнопку: тело скрыто, пока не раскрыли (дизайн-спека §6)
+  const toggle = page.getByRole("button", { name: /Легенда/ });
+  await expect(toggle).toBeVisible();
+  await expect(page.getByText("Плотность, POI / км²")).toBeHidden();
+
+  await toggle.click();
+  await expect(page.getByText("Плотность, POI / км²")).toBeVisible();
+  await expect(page.getByText("пусто")).toBeVisible();
+
+  // Кнопки действий на телефоне — только иконки
+  await expect(page.locator(".topbar__button-label").first()).toBeHidden();
+
+  await page.screenshot({ path: "e2e/screenshots/mobile-390x844.png" });
+
+  // Переключение категории чипом меняет тепловой слой
+  await page.getByTestId("chip-pickup_point").click();
+  await expect(page.getByTestId("chip-pickup_point")).toHaveAttribute("aria-pressed", "true");
+  await page.waitForFunction(
+    () => {
+      const features = window.__geopulsMap?.queryRenderedFeatures({ layers: ["cells-fill"] }) ?? [];
+      return features.some((feature) => {
+        const properties = (feature as { properties?: { count?: number } }).properties;
+        return (properties?.count ?? 0) > 0;
+      });
+    },
+    null,
+    { timeout: 30_000 },
+  );
 });
 

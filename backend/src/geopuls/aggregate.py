@@ -352,6 +352,7 @@ def compute_breaks_by_category(
     rows: Sequence[dict[str, Any]],
     category_ids: dict[str, int],
     resolution: int = 9,
+    classes: int = LEGEND_CLASSES,
 ) -> dict[str, list[float]]:
     """Границы классов легенды по каждой категории (детальный слой)."""
     slug_of = {category_id: slug for slug, category_id in category_ids.items()}
@@ -359,7 +360,10 @@ def compute_breaks_by_category(
     for row in rows:
         if row["resolution"] == resolution and row["poi_count"] > 0:
             densities[row["category_id"]].append(float(row["density"]))
-    return {slug_of[category_id]: compute_density_breaks(values) for category_id, values in densities.items()}
+    return {
+        slug_of[category_id]: compute_density_breaks(values, classes=classes)
+        for category_id, values in densities.items()
+    }
 
 
 async def aggregate_city(
@@ -368,6 +372,7 @@ async def aggregate_city(
     resolutions: Sequence[int],
     *,
     dry_run: bool = False,
+    legend_classes: int = LEGEND_CLASSES,
 ) -> AggregateResult:
     """Собрать сетку и статистику города. При ``dry_run`` в БД ничего не пишется."""
     started = time.perf_counter()
@@ -402,7 +407,7 @@ async def aggregate_city(
             {row["h3_index"] for row in stat_rows if row["resolution"] == resolution and row["poi_count"] > 0}
         )
 
-    result.density_breaks = compute_breaks_by_category(stat_rows, category_ids)
+    result.density_breaks = compute_breaks_by_category(stat_rows, category_ids, classes=legend_classes)
     result.seconds = round(time.perf_counter() - started, 1)
 
     if not dry_run:
@@ -430,7 +435,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def run(args: argparse.Namespace) -> int:
     resolutions = tuple(args.resolutions) if args.resolutions else DEFAULT_RESOLUTIONS
-    engine = create_engine(get_settings())
+    settings = get_settings()
+    engine = create_engine(settings)
     exit_code = 0
     try:
         for slug in args.city:
@@ -438,7 +444,13 @@ async def run(args: argparse.Namespace) -> int:
                 run_id, _started_at = await start_import_run(session, source="aggregate", source_url=None)
             try:
                 async with session_scope(engine) as session:
-                    result = await aggregate_city(session, slug, resolutions, dry_run=args.dry_run)
+                    result = await aggregate_city(
+                        session,
+                        slug,
+                        resolutions,
+                        dry_run=args.dry_run,
+                        legend_classes=settings.legend_classes,
+                    )
                     await finish_import_run(
                         session,
                         run_id,

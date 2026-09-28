@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from conftest import DB_TESTS_ENABLED, MINI_PBF, TOMSK_SCOPE, tomsk_city_params
 from geopuls.aggregate import (
+    LEGEND_CLASSES,
     AggregateError,
     GridCell,
     aggregate_city,
@@ -21,6 +22,7 @@ from geopuls.aggregate import (
     compute_density_breaks,
     load_city,
 )
+from geopuls.api.cells import legend_classes_from
 from geopuls.db import session_scope
 from geopuls.importers.poi import (
     deactivate_missing,
@@ -85,6 +87,32 @@ def test_compute_density_breaks_falls_back_when_quantiles_repeat() -> None:
     assert len(set(breaks)) == len(breaks), "границы классов обязаны различаться"
     assert breaks[0] == 0.0
     assert breaks[-1] == pytest.approx(76.9, abs=0.1)
+
+
+def test_compute_density_breaks_class_count_is_a_parameter() -> None:
+    """Число классов легенды — параметр: фронтенд рисует столько цветов, сколько пришло границ."""
+    values = [float(value) for value in range(1, 41)]
+
+    for classes in (2, 3, 4, 5, 6):
+        breaks = compute_density_breaks(values, classes=classes)
+        assert len(breaks) == classes + 1, "нулевой класс плюс N классов плотности"
+        assert breaks[0] == 0.0, "первая граница всегда нулевая"
+        assert breaks[-1] == pytest.approx(40.0), "последняя граница — максимум плотности"
+
+
+def test_legend_classes_from_validates_settings() -> None:
+    """Настройка числа классов не должна ломать API при мусорном значении."""
+
+    class Stub:
+        def __init__(self, value: object) -> None:
+            self.legend_classes = value
+
+    assert legend_classes_from(Stub(6)) == 6
+    assert legend_classes_from(Stub("5")) == 5
+    assert legend_classes_from(Stub(1)) == LEGEND_CLASSES
+    assert legend_classes_from(Stub(99)) == LEGEND_CLASSES
+    assert legend_classes_from(Stub("много")) == LEGEND_CLASSES
+    assert legend_classes_from(None) == LEGEND_CLASSES
 
 
 def test_build_grid_area_matches_polygon() -> None:

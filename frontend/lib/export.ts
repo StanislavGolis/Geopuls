@@ -89,6 +89,15 @@ export async function canvasToPngWithFooter(
   source: HTMLCanvasElement,
   lines: string[],
 ): Promise<string> {
+  // Подпись рисуем уже загруженным шрифтом: до `fonts.ready` браузер подставит системный
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Шрифты недоступны — рисуем тем, что есть
+    }
+  }
+
   const lineHeight = 18;
   const footerHeight = lines.length > 0 ? lines.length * lineHeight + 10 : 0;
 

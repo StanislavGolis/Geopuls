@@ -29,6 +29,7 @@ frontend/public/maplibre-gl-shared-dev.mjs
 # артефакты Playwright
 test-results/
 playwright-report/
+frontend/e2e/screenshots/
 
 # ── Окружение и секреты ──────────────────────────────────────────────────────
 .env

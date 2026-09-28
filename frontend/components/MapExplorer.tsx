@@ -1,8 +1,11 @@
 "use client";
 
+import { Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import ExportMenu from "@/components/ExportMenu";
 import Legend from "@/components/Legend";
+import MapSkeleton from "@/components/MapSkeleton";
 import MapView, { type MapViewHandle } from "@/components/MapView";
 import PoiPanel from "@/components/PoiPanel";
 import {
@@ -14,6 +17,7 @@ import {
   fetchCells,
   fetchCities,
 } from "@/lib/api";
+import { cellsCacheKey, loadCells, saveCells } from "@/lib/cache";
 import {
   buildCellsCsv,
   buildExportFooter,
@@ -23,6 +27,7 @@ import {
   exportFileName,
   type ExportContext,
 } from "@/lib/export";
+import { formatDataVersion } from "@/lib/format";
 import { resolutionForZoom } from "@/lib/heat";
 import { EMPTY_URL_STATE, buildSearch, type UrlState } from "@/lib/urlState";
 
@@ -34,13 +39,16 @@ export type MapExplorerProps = {
 };
 
 type Status = "loading" | "ready" | "empty" | "error";
-type ShareStatus = "idle" | "copied" | "failed";
+type ShareStatus = "idle" | "copied" | "shared";
 
 const DEFAULT_RES = resolutionForZoom(12);
 /** Порог «мало данных» для честного предупреждения в легенде. */
 const THIN_DATA_THRESHOLD = 30;
 /** Сколько держать подсказку о ссылке, мс. */
 const SHARE_HINT_MS = 3000;
+
+/** Технические подробности ошибки показываем только вне продакшена (дизайн-спека §4.8). */
+const SHOW_TECHNICAL_HINTS = process.env.NODE_ENV !== "production";
 
 export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps) {
   const initial = initialState ?? EMPTY_URL_STATE;
@@ -53,6 +61,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [cells, setCells] = useState<CellsResponse | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<ApiError | null>(null);
+  const [offline, setOffline] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedCell, setSelectedCell] = useState<string | null>(initial.cell);
   const [view, setView] = useState<{ lat: number; lon: number; zoom: number } | null>(
@@ -66,6 +75,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const mapRef = useRef<MapViewHandle | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const resRef = useRef(res);
+  const citySelectRef = useRef<HTMLSelectElement | null>(null);
 
   /** Стартовый вид карты фиксируем на монтировании: дальше вид живёт внутри карты. */
   const initialView = useMemo(
@@ -113,16 +123,34 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     requestRef.current = controller;
 
     setStatus("loading");
+    const cacheKey = cellsCacheKey(citySlug, categorySlug, res);
+
     (async () => {
       try {
         const response = await fetchCells({ city: citySlug, category: categorySlug, res });
         if (controller.signal.aborted) return;
         setCells(response);
         setError(null);
+        setOffline(false);
         setStatus(response.meta.non_empty_count > 0 ? "ready" : "empty");
+        // Последний успешный ответ пригодится, если пропадёт связь
+        saveCells(cacheKey, response);
       } catch (exc) {
         if (controller.signal.aborted) return;
-        setError(asApiError(exc));
+
+        const apiError = asApiError(exc);
+        const cached = apiError.isOffline ? loadCells(cacheKey) : null;
+
+        if (cached) {
+          // Показываем последние загруженные данные и честный баннер вместо пустого экрана
+          setCells(cached);
+          setError(apiError);
+          setOffline(true);
+          setStatus(cached.meta.non_empty_count > 0 ? "ready" : "empty");
+          return;
+        }
+
+        setError(apiError);
         setStatus("error");
       }
     })();
@@ -173,6 +201,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         : null,
     [city, category, res, cells],
   );
+  const dataVersion = cells?.meta.data_version ?? city?.data_version ?? null;
 
   const handleResolutionChange = useCallback((next: 8 | 9) => {
     setRes((current) => (current === next ? current : next));
@@ -190,6 +219,11 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     setSelectedCell(h3);
   }, []);
 
+  const selectCategory = useCallback((slug: string) => {
+    setCategorySlug(slug);
+    setSelectedCell(null);
+  }, []);
+
   const reload = useCallback(() => {
     setError(null);
     setStatus("loading");
@@ -198,14 +232,34 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   const handleShare = useCallback(async () => {
     const url = window.location.href;
+    // Системное меню «поделиться» показываем только на тач-устройствах: на десктопе
+    // оно открывает диалог ОС и мешает работать с картой
+    const prefersNativeShare =
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+
+    if (prefersNativeShare) {
+      try {
+        await navigator.share({ title: "ГЕОПУЛЬС — плотность организаций", url });
+        setShareStatus("shared");
+      } catch {
+        // Пользователь закрыл системное меню — это не ошибка
+        return;
+      }
+      window.setTimeout(() => setShareStatus("idle"), SHARE_HINT_MS);
+      return;
+    }
+
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API недоступен");
       await navigator.clipboard.writeText(url);
       setShareStatus("copied");
     } catch {
       // Фолбэк для http/localhost и браузеров без Clipboard API: показываем ссылку для копирования
-      setShareStatus("failed");
       window.prompt("Скопируйте ссылку", url);
+      return;
     }
     window.setTimeout(() => setShareStatus("idle"), SHARE_HINT_MS);
   }, []);
@@ -233,9 +287,10 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       <header className="topbar">
         <span className="topbar__brand">ГЕОПУЛЬС</span>
 
-        <label className="topbar__control">
-          Город
+        <label className="topbar__control topbar__control--city">
+          <span className="topbar__label">Город</span>
           <select
+            ref={citySelectRef}
             aria-label="Город"
             value={citySlug ?? ""}
             onChange={(event) => {
@@ -251,15 +306,12 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </select>
         </label>
 
-        <label className="topbar__control">
-          Категория
+        <label className="topbar__control topbar__control--category">
+          <span className="topbar__label">Категория</span>
           <select
             aria-label="Категория"
             value={categorySlug ?? ""}
-            onChange={(event) => {
-              setCategorySlug(event.target.value);
-              setSelectedCell(null);
-            }}
+            onChange={(event) => selectCategory(event.target.value)}
           >
             {categories.map((item) => (
               <option key={item.slug} value={item.slug}>
@@ -270,6 +322,25 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </select>
         </label>
 
+        {/* На мобильном категорию выбирают чипами: селект скрыт стилями, чипы — наоборот */}
+        <div className="chips" role="group" aria-label="Категории">
+          {categories.map((item) => (
+            <button
+              key={item.slug}
+              type="button"
+              className={`chip${item.slug === categorySlug ? " chip--active" : ""}`}
+              aria-pressed={item.slug === categorySlug}
+              data-testid={`chip-${item.slug}`}
+              onClick={() => selectCategory(item.slug)}
+            >
+              {item.name}
+              {item.poi_count === 0 ? " — нет данных" : ""}
+            </button>
+          ))}
+        </div>
+
+        <span className="topbar__spacer" />
+
         <div className="topbar__actions">
           <button
             type="button"
@@ -278,45 +349,23 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             data-testid="share"
             title="Скопировать ссылку на текущий вид"
           >
-            Поделиться
+            <Share2 size={16} aria-hidden="true" />
+            <span className="topbar__button-label">Поделиться</span>
           </button>
-          <button
-            type="button"
-            className="topbar__button"
-            onClick={handleExportPng}
-            disabled={!cells || exporting}
-            data-testid="export-png"
-            title="Скачать PNG текущего вида"
-          >
-            {exporting ? "Готовим…" : "PNG"}
-          </button>
-          <button
-            type="button"
-            className="topbar__button"
-            onClick={handleExportCsv}
+
+          <ExportMenu
             disabled={!cells}
-            data-testid="export-csv"
-            title="Скачать CSV ячеек: индекс H3, количество объектов, плотность"
-          >
-            CSV
-          </button>
-          {shareStatus !== "idle" && (
-            <span className="topbar__meta" data-testid="share-status">
-              {shareStatus === "copied" ? "ссылка скопирована" : "скопируйте ссылку из окна браузера"}
-            </span>
-          )}
+            busy={exporting}
+            onExportPng={handleExportPng}
+            onExportCsv={handleExportCsv}
+          />
         </div>
 
-        <span className="topbar__spacer" />
-
-        <span className="topbar__meta" data-testid="data-version">
-          {cells?.meta.data_version
-            ? `Данные OSM на ${cells.meta.data_version}`
-            : initialDataLabel(status)}
-        </span>
-        <span className="topbar__meta" data-testid="resolution">
-          сетка res {res}
-        </span>
+        {shareStatus !== "idle" && (
+          <span className="topbar__status" role="status" data-testid="share-status">
+            {shareStatus === "copied" ? "ссылка скопирована" : "ссылка передана"}
+          </span>
+        )}
       </header>
 
       <div className="map">
@@ -325,6 +374,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             ref={mapRef}
             city={city}
             cells={cells}
+            busy={status === "loading"}
             initialView={initialView}
             selectedCell={selectedCell}
             onCellSelect={handleCellSelect}
@@ -339,14 +389,17 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         {category && (
           <Legend
             breaks={cells?.meta.density_breaks ?? null}
+            res={res}
             poiCount={cells?.meta.poi_count ?? category.poi_count}
             thinDataThreshold={THIN_DATA_THRESHOLD}
           />
         )}
 
-        {status === "loading" && (
-          <div className="overlay" data-testid="loading">
-            <div className="overlay__card">Загружаем тепловую карту…</div>
+        {status === "loading" && <MapSkeleton />}
+
+        {offline && (
+          <div className="offline-banner" role="status" data-testid="offline">
+            Нет связи с сервисом — показаны последние загруженные данные
           </div>
         )}
 
@@ -362,21 +415,37 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </div>
         )}
 
-        {status === "error" && error && (
+        {status === "error" && error && !offline && (
           <div className="overlay" data-testid="error">
             <div className="overlay__card overlay__card--error">
-              <strong>{error.title}</strong>
-              <p>{error.detail}</p>
-              {error.isOffline && <p>Проверьте соединение с интернетом и попробуйте снова.</p>}
-              {error.isDataMissing && (
-                <p>
-                  Данные для города ещё не собраны: на сервере нужно выполнить импорт и агрегацию
-                  (<code>geopuls.importers.poi</code>, <code>geopuls.aggregate</code>).
-                </p>
+              {error.isDataMissing ? (
+                <>
+                  <strong>Данные для этого города ещё не собраны</strong>
+                  <p>Мы работаем над этим. Пока можно выбрать другой город.</p>
+                  <button
+                    type="button"
+                    className="overlay__button"
+                    onClick={() => citySelectRef.current?.focus()}
+                  >
+                    Выбрать другой город
+                  </button>
+                </>
+              ) : (
+                <>
+                  <strong>{error.title}</strong>
+                  <p>{error.detail}</p>
+                  {error.isOffline && <p>Проверьте соединение с интернетом и попробуйте снова.</p>}
+                  {SHOW_TECHNICAL_HINTS && (
+                    <p className="overlay__hint">
+                      Технические подробности (только в dev): проверьте, что API отвечает, а данные
+                      собраны — <code>geopuls.importers.poi</code>, <code>geopuls.aggregate</code>.
+                    </p>
+                  )}
+                  <button type="button" className="overlay__button" onClick={reload}>
+                    Повторить
+                  </button>
+                </>
               )}
-              <button type="button" className="overlay__button" onClick={reload}>
-                Повторить
-              </button>
             </div>
           </div>
         )}
@@ -391,6 +460,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             onClose={() => setSelectedCell(null)}
           />
         )}
+
+        {/* Постоянная строка: атрибуция и лицензии должны быть видны всегда (ADR 0002, спека §4.7) */}
+        <p className="attribution-line" data-testid="attribution">
+          Данные © OpenStreetMap contributors · выгрузка{" "}
+          <span className="mono" data-testid="data-version">
+            {formatDataVersion(dataVersion) ?? "—"}
+          </span>{" "}
+          · Подложка: OpenFreeMap © OpenMapTiles ·{" "}
+          <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">
+            Сообщить об ошибке
+          </a>
+        </p>
+
       </div>
     </>
   );

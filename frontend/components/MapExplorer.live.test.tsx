@@ -41,11 +41,11 @@ describe.skipIf(!liveUrl)("MapExplorer против живого API", () => {
     const features = Number(map.textContent?.replace(/\D/g, "") ?? "0");
     expect(features).toBeGreaterThan(1000), "сетка Томска должна содержать больше тысячи ячеек";
 
-    expect(screen.getByTestId("data-version").textContent).toMatch(/Данные OSM на \d{4}-\d{2}-\d{2}/);
+    expect(screen.getByTestId("data-version").textContent).toMatch(/^\d{2}\.\d{2}\.\d{4}$/);
     expect(screen.getByTestId("resolution").textContent).toContain("res 9");
 
     // Легенда строится по реальным границам классов, а не по заглушке
-    expect(screen.getByText(/0 — нет размеченных объектов/)).toBeTruthy();
+    expect(screen.getByText("пусто")).toBeTruthy();
     expect(screen.getByText(/более \d/)).toBeTruthy();
     expect(screen.queryByTestId("error")).toBeNull();
   }, 30_000);
