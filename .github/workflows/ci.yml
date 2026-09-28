@@ -37,6 +37,10 @@ jobs:
           enable-cache: true
       - name: Установить зависимости
         run: uv sync --locked
+      - name: Применить миграции
+        run: uv run alembic upgrade head
+      - name: Проверить, что модели совпадают с миграциями
+        run: uv run alembic check
       - name: Линтер
         run: uv run ruff check .
       - name: Форматирование

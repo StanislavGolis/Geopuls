@@ -78,9 +78,11 @@ MVP_CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         slug="restaurant",
-        name_ru="Рестораны",
+        name_ru="Рестораны и фастфуд",
         color="#1f6fb2",
-        rules=(rule(("amenity", "restaurant")),),
+        # fast_food добавлен по итогам разведки (Этап 0.5): 171 объект против 87 у restaurant.
+        # Значения одного ключа взаимоисключающие, поэтому категория не даёт двойного учёта.
+        rules=(rule(("amenity", "restaurant")), rule(("amenity", "fast_food"))),
     ),
     Category(
         slug="bar",
@@ -104,10 +106,10 @@ MVP_CATEGORIES: tuple[Category, ...] = (
         slug="fitness",
         name_ru="Фитнес и спортзалы",
         color="#1f6fb2",
-        rules=(
-            rule(("leisure", "fitness_centre")),
-            rule(("leisure", "sports_centre"), ("sport", "fitness")),
-        ),
+        # По итогам разведки (Этап 0.5): правило leisure=sports_centre + sport=fitness дало 0 объектов
+        # в Томске, вместо него добавлен leisure=sports_hall (13). Уличные leisure=fitness_station (63)
+        # осознанно не включаются — это не коммерческие объекты.
+        rules=(rule(("leisure", "fitness_centre")), rule(("leisure", "sports_hall"))),
     ),
     Category(
         slug="grocery",

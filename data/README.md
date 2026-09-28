@@ -44,6 +44,19 @@ uv run python -m geopuls.recon.pbf_scan `
 
 Сканирование 557 МБ занимает порядка 20 минут (собирается индекс координат для геометрии ways).
 
+## Граница города
+
+Для сидирования `cities` нужен полигон города (по нему строятся H3-ячейки и клип POI):
+
+```powershell
+cd backend
+uv run python -m geopuls.importers.boundary --city "Томск" --out ..\data\raw\tomsk-boundary.json
+```
+
+Запрос делается один раз (Nominatim: User-Agent с контактом, ≤ 1 запроса в секунду), результат
+кэшируется в файл вместе с лицензией ODbL и `osm_relation_id`. Обоснование выбора источника —
+`docs/decisions/0004-city-boundary.md`.
+
 ## Что где лежит
 
 | Каталог | Назначение | В git |
