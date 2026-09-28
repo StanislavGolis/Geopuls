@@ -3,11 +3,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MapExplorer from "./MapExplorer";
 import { ApiError, type CategoryMeta, type CellsResponse, type CityMeta } from "@/lib/api";
+import { EMPTY_URL_STATE } from "@/lib/urlState";
 
 // Карта тянет WebGL — в jsdom подменяем её заглушкой и проверяем передачу данных
 vi.mock("./MapView", () => ({
-  default: ({ cells }: { cells: CellsResponse | null }) => (
-    <div data-testid="map">features={cells?.features.length ?? 0}</div>
+  default: ({
+    cells,
+    onCellSelect,
+    selectedCell,
+  }: {
+    cells: CellsResponse | null;
+    onCellSelect: (h3: string) => void;
+    selectedCell: string | null;
+  }) => (
+    <div data-testid="map">
+      features={cells?.features.length ?? 0}
+      <span data-testid="selected-cell">{selectedCell ?? ""}</span>
+      <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
+        клик по ячейке
+      </button>
+    </div>
   ),
 }));
 
@@ -15,6 +30,7 @@ const apiMock = {
   fetchCities: vi.fn(),
   fetchCategories: vi.fn(),
   fetchCells: vi.fn(),
+  fetchPois: vi.fn(),
 };
 
 vi.mock("@/lib/api", async () => {
@@ -24,8 +40,36 @@ vi.mock("@/lib/api", async () => {
     fetchCities: () => apiMock.fetchCities(),
     fetchCategories: () => apiMock.fetchCategories(),
     fetchCells: (query: unknown) => apiMock.fetchCells(query),
+    fetchPois: (query: unknown) => apiMock.fetchPois(query),
   };
 });
+
+const POIS = {
+  items: [
+    {
+      osm_type: "node",
+      osm_id: 42,
+      name: "Кофейня «Точка»",
+      brand: null,
+      address: "пр. Ленина, 10",
+      categories: ["cafe"],
+      lat: 56.47,
+      lon: 85.02,
+      osm_url: "https://www.openstreetmap.org/node/42",
+    },
+  ],
+  meta: {
+    city: "tomsk",
+    cell: "890b80db643ffff",
+    res: 9,
+    category: "cafe",
+    total: 1,
+    returned: 1,
+    limit: 100,
+    offset: 0,
+    data_version: "2026-09-27",
+  },
+};
 
 const CITY: CityMeta = {
   slug: "tomsk",
@@ -83,10 +127,13 @@ beforeEach(() => {
   apiMock.fetchCities.mockResolvedValue([CITY]);
   apiMock.fetchCategories.mockResolvedValue(CATEGORIES);
   apiMock.fetchCells.mockResolvedValue(CELLS);
+  apiMock.fetchPois.mockResolvedValue(POIS);
+  window.history.replaceState(null, "", "/");
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("MapExplorer", () => {
@@ -113,7 +160,12 @@ describe("MapExplorer", () => {
   });
 
   it("уважает город и категорию из query-параметров", async () => {
-    render(<MapExplorer styleUrl="style.json" initialCity="tomsk" initialCategory="bar" />);
+    render(
+      <MapExplorer
+        styleUrl="style.json"
+        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", category: "bar" }}
+      />,
+    );
 
     await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
 
@@ -157,5 +209,93 @@ describe("MapExplorer", () => {
 
     const errorCard = await screen.findByTestId("error");
     expect(errorCard.textContent).toContain("Проверьте соединение с интернетом");
+  });
+
+  it("клик по ячейке открывает список объектов и попадает в адресную строку", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+
+    screen.getByTestId("click-cell").click();
+
+    const panel = await screen.findByTestId("poi-panel");
+    expect(panel).toBeTruthy();
+    expect(await screen.findByText("Кофейня «Точка»")).toBeTruthy();
+    expect(apiMock.fetchPois).toHaveBeenCalledWith({
+      city: "tomsk",
+      cell: "890b80db643ffff",
+      res: 9,
+      category: "cafe",
+    });
+    expect(screen.getByTestId("selected-cell").textContent).toBe("890b80db643ffff");
+    await waitFor(() => expect(window.location.search).toContain("cell=890b80db643ffff"));
+    expect(window.location.search).toContain("city=tomsk");
+    expect(window.location.search).toContain("category=cafe");
+  });
+
+  it("смена города или категории закрывает список объектов прежней ячейки", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+
+    screen.getByTestId("click-cell").click();
+    await screen.findByTestId("poi-panel");
+
+    // Смена значения как её делает React: присваиваем value и шлём change
+    const select = screen.getByLabelText("Категория") as HTMLSelectElement;
+    select.value = "bar";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => expect(screen.queryByTestId("poi-panel")).toBeNull());
+    expect(window.location.search).not.toContain("cell=");
+  });
+
+  it("кнопка «Поделиться» копирует ссылку на текущий вид", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+
+    screen.getByTestId("share").click();
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toContain("city=tomsk");
+    const status = await screen.findByTestId("share-status");
+    expect(status.textContent).toContain("ссылка скопирована");
+  });
+
+  it("по кнопке CSV выгружает сетку с индексом H3, количеством и плотностью", async () => {
+    const blobs: Blob[] = [];
+    const created: HTMLAnchorElement[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn((blob: Blob) => {
+        blobs.push(blob);
+        return "blob:geopuls";
+      }),
+      configurable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function mockClick(this: HTMLAnchorElement) {
+        created.push(this);
+      });
+
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+
+    screen.getByTestId("export-csv").click();
+
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    const text = await blobs[0].text();
+    expect(text).toContain("h3,count,density_poi_per_km2");
+    expect(text).toContain("890b80db643ffff,2,17.1");
+    expect(created[0].download).toBe("geopuls-томск-res9.csv");
+
+    clickSpy.mockRestore();
+    Reflect.deleteProperty(URL, "createObjectURL");
+    Reflect.deleteProperty(URL, "revokeObjectURL");
   });
 });

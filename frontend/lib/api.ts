@@ -107,6 +107,44 @@ export type CellsQuery = {
   bbox?: string;
 };
 
+export type PoiItem = {
+  osm_type: string;
+  osm_id: number;
+  name: string | null;
+  brand: string | null;
+  address: string | null;
+  categories: string[];
+  lat: number;
+  lon: number;
+  /** Ссылка на объект в OpenStreetMap (данные ODbL — источник нужно показывать). */
+  osm_url: string;
+};
+
+export type PoisMeta = {
+  city: string;
+  cell: string;
+  res: number;
+  category: string | null;
+  total: number;
+  returned: number;
+  limit: number;
+  offset: number;
+  data_version: string | null;
+};
+
+export type PoisResponse = {
+  items: PoiItem[];
+  meta: PoisMeta;
+};
+
+export type PoisQuery = {
+  city: string;
+  cell: string;
+  res: number;
+  category?: string;
+  limit?: number;
+};
+
 function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
   const url = new URL(`${API_BASE_URL}${path}`);
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -172,5 +210,15 @@ export function fetchCells(query: CellsQuery): Promise<CellsResponse> {
     category: query.category,
     res: query.res,
     bbox: query.bbox,
+  });
+}
+
+export function fetchPois(query: PoisQuery): Promise<PoisResponse> {
+  return requestJson<PoisResponse>("/api/v1/pois", {
+    city: query.city,
+    cell: query.cell,
+    res: query.res,
+    category: query.category,
+    limit: query.limit,
   });
 }

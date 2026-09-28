@@ -76,6 +76,34 @@ body {
   flex: 1;
 }
 
+/* Кнопки действий: поделиться ссылкой и экспорт текущего вида */
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topbar__button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.topbar__button:hover:not(:disabled) {
+  background: #334155;
+}
+
+.topbar__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .topbar__meta {
   font-size: 12px;
   color: #cbd5e1;
@@ -121,6 +149,121 @@ body {
   font-size: 12px;
   line-height: 1.35;
   color: #334155;
+}
+
+/* Панель объектов выбранной ячейки: клик по гексу (Этап 6) */
+.poi-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.16);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.poi-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.poi-panel__title {
+  font-size: 13px;
+}
+
+.poi-panel__count {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.poi-panel__close {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.poi-panel__close:hover {
+  color: var(--color-text);
+}
+
+.poi-panel__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+
+.poi-panel__item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.poi-panel__item:last-child {
+  border-bottom: 0;
+}
+
+.poi-panel__name {
+  font-weight: 600;
+}
+
+.poi-panel__brand,
+.poi-panel__address {
+  color: #334155;
+  font-size: 12px;
+}
+
+.poi-panel__foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.poi-panel__tags {
+  flex: 1;
+}
+
+.poi-panel__link {
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.poi-panel__note {
+  margin: 0;
+  padding: 10px 12px;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.poi-panel__error {
+  padding: 10px 12px;
+}
+
+.poi-panel__error strong {
+  color: var(--color-error);
+}
+
+.poi-panel__error p {
+  margin: 4px 0 0;
+  color: #334155;
+  line-height: 1.4;
 }
 
 /* Легенда: подписи и значения, не только цвет (требование доступности) */
@@ -277,6 +420,23 @@ body {
     padding: 8px 10px;
     font-size: 11px;
     max-width: min(260px, calc(100% - 16px));
+  }
+
+  /* На телефоне список объектов — «шторка» снизу, как в картах */
+  .poi-panel {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 55%;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .poi-panel__head {
+    position: sticky;
+    top: 0;
+    background: #fff;
   }
 
   .disclaimer,

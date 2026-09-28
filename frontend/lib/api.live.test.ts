@@ -49,12 +49,43 @@ describe.skipIf(!liveUrl)("клиент API против живого бэкен
     const nonEmpty = cells.features.find((feature) => feature.properties.count > 0);
     expect(nonEmpty).toBeTruthy();
 
-    const pois = await api.requestJson<{ items: { name: string | null; categories: string[] }[] }>(
-      "/api/v1/pois",
-      { city: "tomsk", cell: nonEmpty!.id },
-    );
-    expect(pois.items.length).toBeGreaterThan(0);
+    const pois = await api.fetchPois({
+      city: "tomsk",
+      cell: nonEmpty!.id,
+      res: 9,
+      category: "cafe",
+    });
+
+    expect(pois.meta.cell).toBe(nonEmpty!.id);
+    expect(pois.meta.res).toBe(9);
+    expect(pois.meta.total).toBeGreaterThan(0);
+    expect(pois.meta.returned).toBeLessThanOrEqual(pois.meta.limit);
+    expect(pois.items.length).toBe(pois.meta.returned);
     expect(pois.items[0].categories).toContain("cafe");
+    // Объект должен быть пригоден для показа: ссылка на OSM и координаты внутри ячейки
+    expect(pois.items[0].osm_url).toMatch(/^https:\/\/www\.openstreetmap\.org\/(node|way|relation)\/\d+$/);
+    expect(pois.items[0].lat).toBeGreaterThan(56);
+    expect(pois.items[0].lon).toBeGreaterThan(84);
+  });
+
+  it("для пустой ячейки возвращает пустой список, а не ошибку", async () => {
+    const cells = await api.fetchCells({ city: "tomsk", category: "cafe", res: 9 });
+    const empty = cells.features.find((feature) => feature.properties.count === 0);
+    expect(empty).toBeTruthy();
+
+    const pois = await api.fetchPois({ city: "tomsk", cell: empty!.id, res: 9, category: "cafe" });
+
+    expect(pois.items).toHaveLength(0);
+    expect(pois.meta.total).toBe(0);
+  });
+
+  it("ячейка вне сетки города — 404 по контракту problem+json", async () => {
+    const error = (await api
+      .fetchPois({ city: "tomsk", cell: "8808000001fffff", res: 8 })
+      .catch((exc) => exc)) as InstanceType<typeof api.ApiError>;
+
+    expect(error).toBeInstanceOf(api.ApiError);
+    expect(error.status).toBe(404);
   });
 
   it("разбирает ошибку неизвестного города как problem+json", async () => {

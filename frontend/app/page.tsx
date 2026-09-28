@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import MapExplorer from "@/components/MapExplorer";
+import { parseUrlState } from "@/lib/urlState";
 
 export const metadata: Metadata = {
   title: "ГЕОПУЛЬС — карта плотности организаций",
@@ -13,19 +14,17 @@ const BASEMAP_STYLE_URL =
   process.env.NEXT_PUBLIC_BASEMAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty";
 
 type PageProps = {
-  searchParams: Promise<{ city?: string; category?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function HomePage({ searchParams }: PageProps) {
   const params = await searchParams;
+  // Состояние карты живёт в URL: одной ссылкой можно поделиться (раздел 4.3 ТЗ)
+  const initialState = parseUrlState(params);
 
   return (
     <main className="app">
-      <MapExplorer
-        styleUrl={BASEMAP_STYLE_URL}
-        initialCity={params.city}
-        initialCategory={params.category}
-      />
+      <MapExplorer styleUrl={BASEMAP_STYLE_URL} initialState={initialState} />
 
       <div className="disclaimer">
         Данные © OpenStreetMap contributors (ODbL). Показаны только объекты, размеченные сообществом, —
