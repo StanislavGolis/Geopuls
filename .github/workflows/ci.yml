@@ -68,6 +68,8 @@ jobs:
         run: npm ci
       - name: Проверка типов
         run: npm run typecheck
+      - name: Тесты
+        run: npm run test
       - name: Сборка
         run: npm run build
 

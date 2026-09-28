@@ -23,8 +23,8 @@ API-данные) ещё не реализован.
 - [x] **Этап 2: импорт OSM** — один проход по выгрузке Geofabrik (557 МБ) → 2 100 POI по 8 категориям с H3-индексами, мягкое удаление, журнал импортов
 - [x] **Этап 3: агрегация H3** — полная сетка города (1 507 ячеек res 9, включая пустые), плотность POI/км² и доля адресов по ячейкам; 78% ячеек пустые
 - [x] **Этап 4: API** — `/api/v1/meta/cities`, `/meta/categories`, `/cells` (GeoJSON + `meta.density_breaks`), `/pois`; ETag/304, gzip, ошибки RFC 9457 (`docs/decisions/0007-api-contract.md`)
-- [x] Фронтенд: MapLibre + демо-тепловой слой H3 res 9 (подключение реальных данных — Этап 5)
-- [ ] Клик по ячейке → список POI — Этап 6
+- [x] **Этап 5: фронтенд на реальных данных** — карта берёт сетку из API, легенда из `density_breaks`, res 8/9 по зуму, состояния загрузки/пустоты/ошибки, мобильная вёрстка (`docs/decisions/0008-frontend.md`)
+- [ ] Клик по ячейке → список POI, shareable URL, экспорт — Этап 6
 
 ## API (кратко)
 
@@ -78,8 +78,16 @@ uv run uvicorn geopuls.main:app --reload --port 8000
 # frontend
 cd ../frontend
 npm install
+npm run test                  # vitest: раскраска, клиент API, легенда, состояния
 npm run dev
 # → http://localhost:3000
+```
+
+Живые тесты фронтенда против запущенного API (проверяют связку «компонент → HTTP → бэкенд»):
+
+```bash
+cd backend && uv run uvicorn geopuls.main:app --port 8000      # в отдельном терминале
+cd frontend && GEOPULS_LIVE_API_URL=http://127.0.0.1:8000 npm run test
 ```
 
 Полный стек в контейнерах: `docker compose up --build` (db + api + web + caddy).

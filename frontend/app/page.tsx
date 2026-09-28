@@ -1,52 +1,31 @@
-import MapView from "@/components/MapView";
+import type { Metadata } from "next";
 
-/** Этап 0: данные синтетические. Дата реальной выгрузки OSM появится вместе с импортёром (Этап 2). */
-const DATA_VERSION = process.env.NEXT_PUBLIC_DATA_VERSION ?? "демо-данные (Этап 0)";
+import MapExplorer from "@/components/MapExplorer";
+
+export const metadata: Metadata = {
+  title: "ГЕОПУЛЬС — карта плотности организаций",
+  description:
+    "Тепловая карта плотности организаций по городам России на открытых данных OpenStreetMap. " +
+    "Помогает оценить конкурентную среду и выбрать район для открытия точки.",
+};
 
 const BASEMAP_STYLE_URL =
   process.env.NEXT_PUBLIC_BASEMAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty";
 
-const CATEGORIES = [
-  { slug: "cafe", label: "Кофейни и кафе" },
-  { slug: "restaurant", label: "Рестораны" },
-  { slug: "bar", label: "Бары и пабы" },
-  { slug: "pharmacy", label: "Аптеки" },
-  { slug: "beauty", label: "Салоны красоты" },
-  { slug: "fitness", label: "Фитнес и спортзалы" },
-  { slug: "grocery", label: "Продукты" },
-  { slug: "pickup_point", label: "Пункты выдачи заказов" },
-];
+type PageProps = {
+  searchParams: Promise<{ city?: string; category?: string }>;
+};
 
-export default function HomePage() {
+export default async function HomePage({ searchParams }: PageProps) {
+  const params = await searchParams;
+
   return (
     <main className="app">
-      <header className="topbar">
-        <span className="topbar__brand">ГЕОПУЛЬС</span>
-
-        <label className="topbar__control">
-          Город
-          <select defaultValue="tomsk" aria-label="Город">
-            <option value="tomsk">Томск</option>
-          </select>
-        </label>
-
-        <label className="topbar__control">
-          Категория
-          <select defaultValue="cafe" aria-label="Категория">
-            {CATEGORIES.map((category) => (
-              <option key={category.slug} value={category.slug}>
-                {category.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <span className="topbar__spacer" />
-
-        <span className="topbar__meta">Данные: {DATA_VERSION}</span>
-      </header>
-
-      <MapView styleUrl={BASEMAP_STYLE_URL} />
+      <MapExplorer
+        styleUrl={BASEMAP_STYLE_URL}
+        initialCity={params.city}
+        initialCategory={params.category}
+      />
 
       <div className="disclaimer">
         Данные © OpenStreetMap contributors (ODbL). Показаны только объекты, размеченные сообществом, —
@@ -57,7 +36,8 @@ export default function HomePage() {
       </div>
 
       <footer className="footer">
-        Подложка: OpenFreeMap © OpenMapTiles · данные OpenStreetMap · ГЕОПУЛЬС, 2026
+        Подложка: OpenFreeMap © OpenMapTiles · данные OpenStreetMap · плотность — по сетке Uber H3 ·
+        ГЕОПУЛЬС, 2026
       </footer>
     </main>
   );
