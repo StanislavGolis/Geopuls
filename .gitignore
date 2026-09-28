@@ -42,6 +42,11 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+# Резервные копии БД: лежат рядом с проектом, но в репозиторий не попадают
+data/backups/*
+!data/backups/.gitkeep
+# Файл-кандидатов POI создаётся сканированием выгрузки OSM (артефакт, а не исходник)
+*.poi-candidates.jsonl
 *.osm.pbf
 *.osm.bz2
 *.osh.pbf
