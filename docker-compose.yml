@@ -31,6 +31,8 @@ services:
       GEOPULS_CORS_ORIGINS: ${GEOPULS_CORS_ORIGINS:-["http://localhost:${WEB_PORT:-3000}"]}
       GEOPULS_BASEMAP_STYLE_URL: ${GEOPULS_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/positron}
       GEOPULS_LEGEND_CLASSES: ${GEOPULS_LEGEND_CLASSES:-4}
+      # Число процессов uvicorn: ответ /cells — тяжёлая сериализация GeoJSON, CPU-bound
+      GEOPULS_WORKERS: ${GEOPULS_WORKERS:-2}
     depends_on:
       db:
         condition: service_healthy

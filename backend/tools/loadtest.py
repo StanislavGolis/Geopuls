@@ -24,6 +24,7 @@ import httpx
 #: Бюджеты p95 по НФТ (мс). `/cells` — основной эндпоинт карты.
 BUDGETS_MS = {
     "cells res 9": 300.0,
+    "cells res 9 (повтор)": 300.0,
     "cells res 8": 300.0,
     "pois ячейки": 300.0,
     "healthz": 100.0,
@@ -46,7 +47,8 @@ class Measurement:
     @property
     def within_budget(self) -> bool:
         budget = BUDGETS_MS.get(self.name)
-        return self.status == 200 and (budget is None or self.p95 <= budget)
+        # 304 — законный успех: тело не передавалось, значит запрос обслуживается из кэша
+        return self.status in {200, 304} and (budget is None or self.p95 <= budget)
 
 
 def percentile(values: list[float], share: float) -> float:
@@ -63,11 +65,26 @@ async def measure(
     *,
     requests: int,
     concurrency: int,
+    conditional: bool = False,
 ) -> Measurement:
+    """Замер одного эндпоинта.
+
+    `conditional=True` имитирует повторный визит: сначала берём ETag, дальше все запросы идут
+    с `If-None-Match`. Именно так ведёт себя браузер, который уже открывал эту страницу, — и
+    именно этот сценарий показывает, во что обходится повторный визит (ответ 304 без тела).
+    """
     latencies: list[float] = []
     statuses: list[int] = []
     transferred = 0
     payload = 0
+
+    headers: dict[str, str] = {}
+    if conditional:
+        probe = await client.get(path, params=params)
+        etag = probe.headers.get("etag")
+        if not etag:
+            raise RuntimeError(f"{name}: сервер не отдал ETag — условный запрос невозможен")
+        headers["If-None-Match"] = etag
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -75,7 +92,7 @@ async def measure(
         nonlocal transferred, payload
         async with semaphore:
             started = time.perf_counter()
-            response = await client.get(path, params=params)
+            response = await client.get(path, params=params, headers=headers)
             latencies.append((time.perf_counter() - started) * 1000)
             statuses.append(response.status_code)
             transferred += int(response.headers.get("content-length") or len(response.content))
@@ -110,15 +127,31 @@ async def run(base_url: str, requests: int, concurrency: int) -> list[Measuremen
         cell_id = busiest["id"]
 
         plan = [
-            ("cells res 9", "/api/v1/cells", {"city": "tomsk", "category": "cafe", "res": 9}),
-            ("cells res 8", "/api/v1/cells", {"city": "tomsk", "category": "cafe", "res": 8}),
-            ("pois ячейки", "/api/v1/pois", {"city": "tomsk", "cell": cell_id}),
-            ("healthz", "/healthz", None),
+            ("cells res 9", "/api/v1/cells", {"city": "tomsk", "category": "cafe", "res": 9}, False),
+            (
+                "cells res 9 (повтор)",
+                "/api/v1/cells",
+                {"city": "tomsk", "category": "cafe", "res": 9},
+                True,
+            ),
+            ("cells res 8", "/api/v1/cells", {"city": "tomsk", "category": "cafe", "res": 8}, False),
+            ("pois ячейки", "/api/v1/pois", {"city": "tomsk", "cell": cell_id}, False),
+            ("healthz", "/healthz", None, False),
         ]
 
         results: list[Measurement] = []
-        for name, path, params in plan:
-            results.append(await measure(client, name, path, params, requests=requests, concurrency=concurrency))
+        for name, path, params, conditional in plan:
+            results.append(
+                await measure(
+                    client,
+                    name,
+                    path,
+                    params,
+                    requests=requests,
+                    concurrency=concurrency,
+                    conditional=conditional,
+                )
+            )
         return results
 
 

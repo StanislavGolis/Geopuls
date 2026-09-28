@@ -68,6 +68,7 @@ if [ -n "$data_version" ]; then
     data_age_days=$(( ( $(date +%s) - $(date -d "$data_version" +%s 2>/dev/null || date +%s) ) / 86400 ))
     RESULTS+=("data_version=$data_version" "data_age_days=$data_age_days")
     if [ "$data_age_days" -gt "$MAX_DATA_AGE_DAYS" ]; then
+        FAILED+=("данные старше $MAX_DATA_AGE_DAYS дней (выгрузка $data_version)")
         notify "данные старше $MAX_DATA_AGE_DAYS дней (выгрузка $data_version): проверь расписание обновления"
     fi
 else
@@ -78,8 +79,14 @@ fi
 disk_percent="$(df --output=pcent / | tail -1 | tr -dc '0-9')"
 mem_percent="$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "%d", (t-a)*100/t}' /proc/meminfo)"
 RESULTS+=("disk_percent=$disk_percent" "mem_percent=$mem_percent")
-[ "$disk_percent" -gt "$MAX_DISK_PERCENT" ] && notify "диск занят на $disk_percent % (порог $MAX_DISK_PERCENT %)"
-[ "$mem_percent" -gt "$MAX_MEM_PERCENT" ] && notify "память занята на $mem_percent % (порог $MAX_MEM_PERCENT %)"
+if [ "$disk_percent" -gt "$MAX_DISK_PERCENT" ]; then
+    FAILED+=("диск занят на $disk_percent % (порог $MAX_DISK_PERCENT %)")
+    notify "диск занят на $disk_percent % (порог $MAX_DISK_PERCENT %)"
+fi
+if [ "$mem_percent" -gt "$MAX_MEM_PERCENT" ]; then
+    FAILED+=("память занята на $mem_percent % (порог $MAX_MEM_PERCENT %)")
+    notify "память занята на $mem_percent % (порог $MAX_MEM_PERCENT %)"
+fi
 
 # 4. Контейнеры
 containers_down="$(docker compose ps --format '{{.Service}} {{.State}}' | awk '$2 != "running" {print $1}' | tr '\n' ' ')"

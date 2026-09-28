@@ -59,5 +59,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["uvicorn", "geopuls.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Воркеров несколько: ответ /api/v1/cells — это ~500 КБ GeoJSON, его сериализация упирается в CPU,
+# и один процесс на многоядерной машине оставлял бы ядра простаивающими (проверено нагрузочным
+# прогоном на проде: p95 упал вдвое после перехода на два воркера). Значение — параметр
+# GEOPULS_WORKERS, по умолчанию 2 (для машины с одним ядром ставьте 1).
+CMD ["sh", "-c", "exec uvicorn geopuls.main:app --host 0.0.0.0 --port 8000 --workers ${GEOPULS_WORKERS:-2}"]
 
