@@ -1,0 +1,77 @@
+name: geopuls
+
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-geopuls}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geopuls}
+      POSTGRES_DB: ${POSTGRES_DB:-geopuls}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geopuls} -d ${POSTGRES_DB:-geopuls}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      GEOPULS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-geopuls}:${POSTGRES_PASSWORD:-geopuls}@db:5432/${POSTGRES_DB:-geopuls}
+      GEOPULS_ENVIRONMENT: ${GEOPULS_ENVIRONMENT:-local}
+      GEOPULS_LOG_LEVEL: ${GEOPULS_LOG_LEVEL:-INFO}
+      GEOPULS_GIT_SHA: ${GEOPULS_GIT_SHA:-}
+      GEOPULS_CORS_ORIGINS: '["http://localhost:3000"]'
+      GEOPULS_BASEMAP_STYLE_URL: ${GEOPULS_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
+      NEXT_PUBLIC_DATA_VERSION: ${NEXT_PUBLIC_DATA_VERSION:-демо-данные (Этап 0)}
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # Обратный прокси с автоматическим TLS. Отдельный профиль, чтобы локальный запуск
+  # не занимал порты 80/443 и не требовал домена.
+  # Запуск: docker compose --profile prod up -d
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["prod"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

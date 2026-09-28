@@ -1,0 +1,27 @@
+# Единый перевод строк — иначе на Windows диффы засоряются CRLF.
+* text=auto eol=lf
+
+# Бинарные файлы (диффы и автослияние не нужны)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# Геоданные
+*.pbf binary
+*.osh.pbf binary
+*.gpkg binary
+*.pmtiles binary
+*.mbtiles binary
+*.shp binary
+*.shx binary
+*.dbf binary
+
+# Сгенерированные lock-файлы: не показывать в диффе
+uv.lock -diff linguist-generated
+package-lock.json -diff linguist-generated

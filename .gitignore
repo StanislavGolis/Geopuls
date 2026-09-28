@@ -1,0 +1,55 @@
+# ── Python (backend, uv) ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# ── Node / frontend ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+.eslintcache
+
+# ── Окружение и секреты ──────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# ── Данные: исходники OSM большие, в git их не храним ────────────────────────
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.osm.pbf
+*.osm.bz2
+*.osh.pbf
+*.gpkg
+*.gpkg.zip
+*.pmtiles
+*.mbtiles
+
+# ── IDE / OS ─────────────────────────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+Thumbs.db
+Desktop.ini
+
+# ── Прочее ───────────────────────────────────────────────────────────────────
+*.log
+tmp/

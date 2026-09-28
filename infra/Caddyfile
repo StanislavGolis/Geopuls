@@ -1,0 +1,41 @@
+# Caddy как единая точка входа: TLS (Let's Encrypt) + проксирование API и веб-приложения.
+# Домен берётся из переменной DOMAIN (см. .env). Для продакшена: DOMAIN=geopuls.example.ru.
+
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	# API ГЕОПУЛЬС
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Служебные эндпоинты — наружу, чтобы работал внешний uptime-мониторинг
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+	handle /readyz {
+		reverse_proxy api:8000
+	}
+	handle /version {
+		reverse_proxy api:8000
+	}
+
+	# Всё остальное — Next.js
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20MiB
+			roll_keep 7
+		}
+	}
+}

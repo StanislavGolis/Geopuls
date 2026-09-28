@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      db:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: geopuls
+          POSTGRES_PASSWORD: geopuls
+          POSTGRES_DB: geopuls
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geopuls -d geopuls"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      GEOPULS_CI_DB: "1"
+      GEOPULS_DATABASE_URL: postgresql+asyncpg://geopuls:geopuls@localhost:5432/geopuls
+    steps:
+      - uses: actions/checkout@v4
+      - name: Установить uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Установить зависимости
+        run: uv sync --locked
+      - name: Линтер
+        run: uv run ruff check .
+      - name: Форматирование
+        run: uv run ruff format --check .
+      - name: Тесты
+        run: uv run pytest
+
+  frontend:
+    name: frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Установить зависимости
+        run: npm ci
+      - name: Проверка типов
+        run: npm run typecheck
+      - name: Сборка
+        run: npm run build
+
+  compose:
+    name: compose (валидация конфигурации)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config > /dev/null
