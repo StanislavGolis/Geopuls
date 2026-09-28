@@ -9,10 +9,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from conftest import DB_TESTS_ENABLED, MINI_PBF, tomsk_city_params
+from conftest import DB_TESTS_ENABLED, MINI_PBF, TOMSK_SCOPE, tomsk_city_params
 from geopuls.db import session_scope
 from geopuls.importers.poi import (
-    CityScope,
     ImportError_,
     PoiRecord,
     build_poi_record,
@@ -24,16 +23,6 @@ from geopuls.importers.poi import (
     way_point,
 )
 from geopuls.seed import seed_categories, seed_city
-
-TOMSK_SCOPE = CityScope(
-    id=1,
-    slug="tomsk",
-    name="Томск",
-    min_lat=56.379,
-    min_lon=84.828,
-    max_lat=56.571,
-    max_lon=85.150,
-)
 
 # ── Юнит-тесты (без БД) ──────────────────────────────────────────────────────
 

@@ -22,9 +22,22 @@ API-данные) ещё не реализован.
 - [x] **Этап 1: модель данных** — 8 таблиц, Alembic-миграции (PostGIS), сид категорий и Томска; CI проверяет `alembic check`
 - [x] **Этап 2: импорт OSM** — один проход по выгрузке Geofabrik (557 МБ) → 2 100 POI по 8 категориям с H3-индексами, мягкое удаление, журнал импортов
 - [x] **Этап 3: агрегация H3** — полная сетка города (1 507 ячеек res 9, включая пустые), плотность POI/км² и доля адресов по ячейкам; 78% ячеек пустые
-- [x] Фронтенд: MapLibre + демо-тепловой слой H3 res 9 (реальные данные — Этап 4)
-- [ ] API `/cells`, `/pois` — Этап 4
+- [x] **Этап 4: API** — `/api/v1/meta/cities`, `/meta/categories`, `/cells` (GeoJSON + `meta.density_breaks`), `/pois`; ETag/304, gzip, ошибки RFC 9457 (`docs/decisions/0007-api-contract.md`)
+- [x] Фронтенд: MapLibre + демо-тепловой слой H3 res 9 (подключение реальных данных — Этап 5)
 - [ ] Клик по ячейке → список POI — Этап 6
+
+## API (кратко)
+
+```bash
+curl "http://localhost:8000/api/v1/meta/cities"
+curl "http://localhost:8000/api/v1/meta/categories"
+curl "http://localhost:8000/api/v1/cells?city=tomsk&category=cafe"          # GeoJSON, 59 КБ gzip
+curl "http://localhost:8000/api/v1/cells?city=tomsk&category=cafe&res=8"    # обзорный слой
+curl "http://localhost:8000/api/v1/pois?city=tomsk&cell=890b80db643ffff"    # объекты ячейки
+```
+
+Документация и схема — `http://localhost:8000/docs` (OpenAPI). Полное описание контракта, кодов
+ответов и кэширования — `docs/tz.md`, раздел 7.
 
 ## Документация
 
@@ -32,7 +45,7 @@ API-данные) ещё не реализован.
 |---|---|
 | [`docs/tz.md`](docs/tz.md) | ТЗ v0.2 — источники и лицензии данных, расчёты, схема данных, API, НФТ, инфраструктура, этапы, риски |
 | [`docs/recon/`](docs/recon) | Разведка данных: покрытие OSM по Томску (сырые числа) и решение по категориям MVP |
-| [`docs/decisions/`](docs/decisions) | ADR: стек и версии, подложка карты, источник данных |
+| [`docs/decisions/`](docs/decisions) | ADR: стек и версии, подложка карты, источники данных, граница города, импорт POI, агрегация H3, контракт API |
 | [`docs/archive/tz-v0.1.md`](docs/archive/tz-v0.1.md) | Исходное ТЗ v0.1 (без изменений, для истории) |
 
 ## Технологический стек (кратко)
