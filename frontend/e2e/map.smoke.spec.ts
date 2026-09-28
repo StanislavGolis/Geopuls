@@ -451,9 +451,39 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
 
   const csvText = await readFile((await csv.path()) as string, "utf8");
   const lines = csvText.replace(/^\uFEFF/, "").trimEnd().split("\n");
-  expect(lines[0]).toBe("h3,count,density_poi_per_km2,has_address_ratio,lat,lon");
+  // Атрибуция обязательна и в экспорте (ODbL): первая строка — комментарий с источником
+  expect(lines[0]).toContain("OpenStreetMap contributors");
+  expect(lines[0]).toContain("ГЕОПУЛЬС");
+  expect(lines[1]).toBe("h3,count,density_poi_per_km2,has_address_ratio,lat,lon");
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
-  expect(lines.length).toBe(gridBody.meta.cell_count + 1);
+  expect(lines.length).toBe(gridBody.meta.cell_count + 2);
+});
+
+test("вёрстка не ломается на 360 px, тач-цели достаточного размера", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Интерфейс помещается по ширине: горизонтальной прокрутки нет
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow, "ничего не должно выезжать за экран").toBeLessThanOrEqual(1);
+
+  // Тач-цели ≥ 44px (дизайн-спека §6)
+  const chip = await page.getByTestId("chip-cafe").boundingBox();
+  const share = await page.getByTestId("share").boundingBox();
+  expect(chip!.height, "чип категории").toBeGreaterThanOrEqual(44);
+  expect(share!.height, "кнопка «Поделиться»").toBeGreaterThanOrEqual(44);
+
+  // Категория выбирается чипами, кнопки — иконочные
+  await expect(page.getByLabel("Категория")).toBeHidden();
+  await expect(page.locator(".topbar__button-label").first()).toBeHidden();
+
+  await page.screenshot({ path: "e2e/screenshots/mobile-360x640.png" });
 });
 
 test("тепловой слой не скрывает подложку: заливка полупрозрачная", async ({ page }) => {

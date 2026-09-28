@@ -4,6 +4,7 @@ import type { CellFeature, CellsResponse } from "./api";
 import {
   CSV_HEADER,
   buildCellsCsv,
+  buildCsvComment,
   buildExportFooter,
   cellCenter,
   exportFileName,
@@ -71,10 +72,22 @@ describe("cellCenter", () => {
 });
 
 describe("buildCellsCsv", () => {
-  it("пишет заголовок, строки и BOM для Excel", () => {
-    const csv = buildCellsCsv(response([cell()]));
-    const [header, row] = csv.replace("\uFEFF", "").split("\n");
+  const CONTEXT = {
+    cityName: "Томск",
+    categoryName: "Кофейни и кафе",
+    res: 9,
+    dataVersion: "2026-09-27",
+  };
 
+  it("начинается строкой-комментарием с атрибуцией, затем заголовок, строки и BOM", () => {
+    const csv = buildCellsCsv(response([cell()]), CONTEXT);
+    const [comment, header, row] = csv.replace("\uFEFF", "").split("\n");
+
+    // Требование ODbL: атрибуция в экспорте, а не только на экране
+    expect(comment).toContain("OpenStreetMap contributors");
+    expect(comment).toContain("Томск");
+    expect(comment).toContain("res 9");
+    expect(comment).toContain("2026-09-27");
     expect(header).toBe(CSV_HEADER);
     expect(row.split(",")).toEqual(["890b80db643ffff", "2", "17.1", "0.5", "56.490000", "85.005000"]);
     expect(csv.startsWith("\uFEFF")).toBe(true);
@@ -83,23 +96,51 @@ describe("buildCellsCsv", () => {
   it("пустые ячейки тоже выгружаются — это и есть «пустые зоны»", () => {
     const csv = buildCellsCsv(
       response([cell({ count: 0, density: 0, has_address_ratio: null }, [[85, 56.5], [85.01, 56.5], [85, 56.5]])]),
+      CONTEXT,
     );
-    const row = csv.replace("\uFEFF", "").split("\n")[1];
+    const row = csv.replace("\uFEFF", "").split("\n")[2];
 
     expect(row.split(",")).toEqual(["890b80db643ffff", "0", "0", "", "56.500000", "85.005000"]);
   });
 
   it("экранирует значения с разделителями и кавычками", () => {
-    const csv = buildCellsCsv(response([cell({ h3: 'A"B,C' })]));
-    const row = csv.replace("\uFEFF", "").split("\n")[1];
+    const csv = buildCellsCsv(response([cell({ h3: 'A"B,C' })]), CONTEXT);
+    const row = csv.replace("\uFEFF", "").split("\n")[2];
 
     expect(row.startsWith('"A""B,C",2,')).toBe(true);
   });
 
-  it("на пустой коллекции отдаёт только заголовок", () => {
-    const lines = buildCellsCsv(response([])).replace("\uFEFF", "").trimEnd().split("\n");
+  it("на пустой коллекции отдаёт комментарий и заголовок", () => {
+    const lines = buildCellsCsv(response([]), CONTEXT).replace("\uFEFF", "").trimEnd().split("\n");
 
-    expect(lines).toEqual([CSV_HEADER]);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(CSV_HEADER);
+  });
+});
+
+describe("buildCsvComment", () => {
+  it("указывает источник, город, категорию, сетку и версию выгрузки", () => {
+    const comment = buildCsvComment({
+      cityName: "Томск",
+      categoryName: "Кофейни и кафе",
+      res: 9,
+      dataVersion: "2026-09-27",
+    });
+
+    expect(comment.startsWith("# ")).toBe(true);
+    expect(comment).toContain("ГЕОПУЛЬС");
+    expect(comment).toContain("Томск");
+    expect(comment).toContain("Кофейни и кафе");
+    expect(comment).toContain("res 9");
+    expect(comment).toContain("OpenStreetMap contributors");
+    expect(comment).toContain("выгрузка 2026-09-27");
+  });
+
+  it("без версии данных не выдумывает её", () => {
+    const comment = buildCsvComment({ cityName: "Томск", categoryName: "Кафе", res: 8 });
+
+    expect(comment).not.toContain("выгрузка");
+    expect(comment).toContain("OpenStreetMap contributors");
   });
 });
 

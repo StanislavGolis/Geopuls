@@ -34,6 +34,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ru" className={`${inter.variable} ${plexMono.variable}`}>
+      <head>
+        {/* Подложка и тайлы: соединение начинаем заранее, чтобы карта появлялась быстрее (Lighthouse) */}
+        <link rel="preconnect" href="https://tiles.openfreemap.org" crossOrigin="" />
+        <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
+      </head>
       <body>{children}</body>
     </html>
   );

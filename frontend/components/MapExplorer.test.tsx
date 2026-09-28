@@ -325,6 +325,8 @@ describe("MapExplorer", () => {
 
     await waitFor(() => expect(blobs).toHaveLength(1));
     const text = await blobs[0].text();
+    // Атрибуция в экспортe обязательна (ODbL), поэтому CSV начинается строкой-комментарием
+    expect(text).toContain("OpenStreetMap contributors");
     expect(text).toContain("h3,count,density_poi_per_km2");
     expect(text).toContain("890b80db643ffff,2,17.1");
     expect(created[0].download).toBe("geopuls-томск-res9.csv");

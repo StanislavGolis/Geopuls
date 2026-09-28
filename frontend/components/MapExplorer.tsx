@@ -279,7 +279,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   const handleExportCsv = useCallback(() => {
     if (!cells || !exportContext) return;
-    downloadText(buildCellsCsv(cells), exportFileName(exportContext, "csv"));
+    downloadText(buildCellsCsv(cells, exportContext), exportFileName(exportContext, "csv"));
   }, [cells, exportContext]);
 
   return (

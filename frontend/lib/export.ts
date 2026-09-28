@@ -2,7 +2,8 @@
  * Экспорт текущего вида: PNG карты и CSV ячеек (раздел 4.4 ТЗ, Этап 6).
  *
  * Атрибуция обязательна и в экспорте тоже (лицензия ODbL + условия OpenFreeMap), поэтому PNG
- * собирается из канваса карты плюс подпись с источником данных — «голый» снимок не отдаём.
+ * собирается из канваса карты плюс подпись с источником данных, а CSV начинается строкой-комментарием
+ * с источником, категорией и версией выгрузки — «голые» данные не отдаём.
  */
 
 import type { CellFeature, CellsResponse } from "@/lib/api";
@@ -32,12 +33,12 @@ function csvValue(value: string | number | null): string {
 }
 
 /**
- * CSV загруженной сетки: все ячейки города по текущей категории (включая пустые) —
- * это и есть «пустые зоны», ради которых сервис существует.
+ * CSV загруженной сетки: строка-комментарий с атрибуцией, затем все ячейки города по текущей
+ * категории (включая пустые) — это и есть «пустые зоны», ради которых сервис существует.
  *
  * BOM добавляем, чтобы Excel корректно открывал UTF-8.
  */
-export function buildCellsCsv(cells: CellsResponse): string {
+export function buildCellsCsv(cells: CellsResponse, context: ExportContext): string {
   const rows = cells.features.map((feature) => {
     const { lat, lon } = cellCenter(feature);
     return [
@@ -50,7 +51,7 @@ export function buildCellsCsv(cells: CellsResponse): string {
     ].join(",");
   });
 
-  return `\uFEFF${[CSV_HEADER, ...rows].join("\n")}\n`;
+  return `\uFEFF${[buildCsvComment(context), CSV_HEADER, ...rows].join("\n")}\n`;
 }
 
 export type ExportContext = {
@@ -59,6 +60,21 @@ export type ExportContext = {
   res: number;
   dataVersion?: string | null;
 };
+
+/**
+ * Строка-комментарий для CSV: источник данных, категория и версия выгрузки.
+ *
+ * Требование лицензии ODbL и §11.1 ТЗ — атрибуция в экспортах, а не только на экране. CSV с
+ * комментарием читается pandas (`comment='#'`), PostgreSQL `COPY` (`HEADER`/`COMMENT`) и Excel;
+ * подробность формата описана в README фронтенда.
+ */
+export function buildCsvComment(context: ExportContext): string {
+  const version = context.dataVersion ? `, выгрузка ${context.dataVersion}` : "";
+  return (
+    `# ГЕОПУЛЬС · ${context.cityName} · ${context.categoryName} · сетка H3 res ${context.res} · ` +
+    `данные © OpenStreetMap contributors (ODbL)${version}`
+  );
+}
 
 export function exportFileName(context: ExportContext, extension: "png" | "csv"): string {
   const slug = context.cityName
