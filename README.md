@@ -90,6 +90,13 @@ cd backend && uv run uvicorn geopuls.main:app --port 8000      # в отдель
 cd frontend && GEOPULS_LIVE_API_URL=http://127.0.0.1:8000 npm run test
 ```
 
+Либо весь стек одной командой (БД в Docker + API + фронтенд с логами в `data/processed/`):
+
+```powershell
+pwsh -File tools/dev-up.ps1      # поднимает и печатает ссылки
+pwsh -File tools/dev-down.ps1    # останавливает
+```
+
 Полный стек в контейнерах: `docker compose up --build` (db + api + web + caddy).
 
 ## Структура репозитория
