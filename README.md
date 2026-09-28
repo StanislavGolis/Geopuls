@@ -23,7 +23,7 @@ API-данные) ещё не реализован.
 - [x] **Этап 2: импорт OSM** — один проход по выгрузке Geofabrik (557 МБ) → 2 100 POI по 8 категориям с H3-индексами, мягкое удаление, журнал импортов
 - [x] **Этап 3: агрегация H3** — полная сетка города (1 507 ячеек res 9, включая пустые), плотность POI/км² и доля адресов по ячейкам; 78% ячеек пустые
 - [x] **Этап 4: API** — `/api/v1/meta/cities`, `/meta/categories`, `/cells` (GeoJSON + `meta.density_breaks`), `/pois`; ETag/304, gzip, ошибки RFC 9457 (`docs/decisions/0007-api-contract.md`)
-- [x] **Этап 5: фронтенд на реальных данных** — карта берёт сетку из API, легенда из `density_breaks`, res 8/9 по зуму, состояния загрузки/пустоты/ошибки, мобильная вёрстка (`docs/decisions/0008-frontend.md`)
+- [x] **Этап 5: фронтенд на реальных данных** — карта берёт сетку из API, легенда из `density_breaks`, res 8/9 по зуму, состояния загрузки/пустоты/ошибки, мобильная вёрстка; рендеринг проверен в реальном браузере (E2E Playwright) — `docs/decisions/0008-frontend.md`, `0009-maplibre-in-next.md`
 - [ ] Клик по ячейке → список POI, shareable URL, экспорт — Этап 6
 
 ## API (кратко)
@@ -45,7 +45,7 @@ curl "http://localhost:8000/api/v1/pois?city=tomsk&cell=890b80db643ffff"    # о
 |---|---|
 | [`docs/tz.md`](docs/tz.md) | ТЗ v0.2 — источники и лицензии данных, расчёты, схема данных, API, НФТ, инфраструктура, этапы, риски |
 | [`docs/recon/`](docs/recon) | Разведка данных: покрытие OSM по Томску (сырые числа) и решение по категориям MVP |
-| [`docs/decisions/`](docs/decisions) | ADR: стек и версии, подложка карты, источники данных, граница города, импорт POI, агрегация H3, контракт API |
+| [`docs/decisions/`](docs/decisions) | ADR: стек и версии, подложка карты, источники данных, граница города, импорт POI, агрегация H3, контракт API, фронтенд, сборка MapLibre в Next |
 | [`docs/archive/tz-v0.1.md`](docs/archive/tz-v0.1.md) | Исходное ТЗ v0.1 (без изменений, для истории) |
 
 ## Технологический стек (кратко)
@@ -79,6 +79,7 @@ uv run uvicorn geopuls.main:app --reload --port 8000
 cd ../frontend
 npm install
 npm run test                  # vitest: раскраска, клиент API, легенда, состояния
+npm run test:e2e              # Playwright: реальный рендеринг карты (нужен запущенный стек)
 npm run dev
 # → http://localhost:3000
 ```

@@ -21,6 +21,14 @@ next-env.d.ts
 *.tsbuildinfo
 npm-debug.log*
 .eslintcache
+# воркер MapLibre копируется скриптом scripts/copy-maplibre-worker.mjs при dev/build
+frontend/public/maplibre-gl-worker.mjs
+frontend/public/maplibre-gl-worker-dev.mjs
+frontend/public/maplibre-gl-shared.mjs
+frontend/public/maplibre-gl-shared-dev.mjs
+# артефакты Playwright
+test-results/
+playwright-report/
 
 # ── Окружение и секреты ──────────────────────────────────────────────────────
 .env

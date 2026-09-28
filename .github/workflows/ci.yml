@@ -72,6 +72,11 @@ jobs:
         run: npm run test
       - name: Сборка
         run: npm run build
+      - name: Проверить, что воркер MapLibre попал в public/
+        run: |
+          for file in maplibre-gl-worker.mjs maplibre-gl-shared.mjs maplibre-gl-worker-dev.mjs maplibre-gl-shared-dev.mjs; do
+            test -s "public/$file" || { echo "не найден public/$file"; exit 1; }
+          done
 
   compose:
     name: compose (валидация конфигурации)

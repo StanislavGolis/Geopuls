@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+// Порядок важен: стили MapLibre подключаются до globals.css, чтобы наши правила
+// гарантированно перекрывали служебные классы библиотеки (`.maplibregl-map`).
+import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
