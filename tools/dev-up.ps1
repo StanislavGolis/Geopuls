@@ -31,9 +31,13 @@ finally {
 }
 
 Write-Host "2/3 Запускаю API на http://127.0.0.1:$ApiPort ..."
+# Явно снимаем переменные, которые могли остаться от тестовых прогонов: иначе API подключится
+# к тестовой базе (пустой) и /cells будет отдавать 503 без внятной причины
 $api = Start-Process -FilePath pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-Command',
-    "cd `"$repoRoot\backend`"; uv run uvicorn geopuls.main:app --host 127.0.0.1 --port $ApiPort"
+    "Remove-Item Env:\GEOPULS_DATABASE_URL, Env:\GEOPULS_TEST_DATABASE_URL, Env:\GEOPULS_CI_DB " +
+    "-ErrorAction SilentlyContinue; cd `"$repoRoot\backend`"; uv run uvicorn geopuls.main:app " +
+    "--host 127.0.0.1 --port $ApiPort"
 ) -RedirectStandardOutput (Join-Path $logs 'api.log') -RedirectStandardError (Join-Path $logs 'api.err.log')
 
 Write-Host "3/3 Запускаю фронтенд на http://localhost:$WebPort ..."
