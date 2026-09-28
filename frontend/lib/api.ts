@@ -7,6 +7,19 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+/**
+ * База для запросов.
+ *
+ * Пустое значение `NEXT_PUBLIC_API_BASE_URL` означает «тот же origin»: так работает деплой,
+ * где фронтенд и API отдаёт один reverse-proxy на одном домене (см. `infra/Caddyfile`).
+ * Тогда домен не нужно встраивать в сборку — переезд на другой адрес не требует пересборки.
+ */
+function resolveBaseUrl(): string {
+  if (API_BASE_URL) return API_BASE_URL;
+  if (typeof window !== "undefined") return window.location.origin;
+  return "http://localhost:3000";
+}
+
 export type ProblemDetails = {
   type?: string;
   title?: string;
@@ -146,7 +159,7 @@ export type PoisQuery = {
 };
 
 function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
-  const url = new URL(`${API_BASE_URL}${path}`);
+  const url = new URL(`${resolveBaseUrl()}${path}`);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));

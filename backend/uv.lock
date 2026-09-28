@@ -228,6 +228,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "geoalchemy2" },
     { name = "h3" },
+    { name = "httpx" },
     { name = "osmium" },
     { name = "pydantic-settings" },
     { name = "sqlalchemy", extra = ["asyncio"] },
@@ -236,7 +237,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -249,6 +249,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "geoalchemy2", specifier = ">=0.20" },
     { name = "h3", specifier = ">=4.5,<5" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "osmium", specifier = ">=4.3.1" },
     { name = "pydantic-settings", specifier = ">=2.5" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.35" },
@@ -257,7 +258,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "ruff", specifier = ">=0.7" },

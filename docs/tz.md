@@ -522,9 +522,15 @@ data_versions               -- версия данных для кэша и UI
 
 ### 9.1 Развёртывание
 
-- `docker compose`: `db` (PostgreSQL 17 + PostGIS 3.5), `api` (FastAPI/Uvicorn), `web` (Next.js),
-  `caddy` (TLS + reverse-proxy), позже `scheduler` (импорт/агрегация по расписанию).
-- Локальная разработка: `docker compose up -d db` + `uv run uvicorn` + `npm run dev`.
+- `docker compose`: `db` (PostgreSQL 17 + PostGIS 3.5), `api` (FastAPI/Uvicorn), `web` (Next.js standalone),
+  `caddy` (TLS + reverse-proxy, профиль `prod`), позже `scheduler` (импорт/агрегация по расписанию).
+- Весь стек в контейнерах одной командой: `pwsh -File tools/docker-up.ps1` (сборка → запуск → ожидание
+  health), остановка — `pwsh -File tools/docker-down.ps1`. Контейнер API при старте применяет миграции
+  Alembic и идемпотентно сидирует справочник категорий (`backend/docker-entrypoint.sh`), поэтому свежий
+  том готов к работе сразу; город, POI и агрегация загружаются отдельными командами
+  (`docker compose run --rm api python -m …`) — выгрузка OSM в образ не входит.
+- Порядок запуска задан healthcheck'ами: `db → api → web`. Прод-профиль добавляет Caddy с авто-TLS.
+- Локальная разработка: `pwsh -File tools/dev-up.ps1` (БД в Docker, API и фронтенд нативно).
 - Прод: один VPS; Caddy получает TLS автоматически (Let's Encrypt); фронтенд — статика/Next standalone.
 - Секреты — только через env/секреты CI, файл `.env` в git не попадает (`.env.example` — в git).
 
@@ -568,8 +574,9 @@ uv run python -m geopuls.aggregate --city tomsk
 | Job | Шаги |
 |---|---|
 | `backend` | `uv sync --locked`, `ruff check`, `ruff format --check`, `pytest` (с сервисом PostGIS в CI) |
-| `frontend` | `npm ci`, `npm run typecheck`, `npm run build` |
+| `frontend` | `npm ci`, `npm run typecheck`, `npm run test`, `npm run build`, проверка воркера MapLibre в `public/` |
 | `compose` | `docker compose config` — валидация конфигурации |
+| `images` | `docker compose build api web` — сборка образов (поломка Dockerfile видна в CI, а не при деплое) |
 
 Деплой MVP — вручную по чек-листу (`git tag` → `docker compose pull/up`), автоматизация CD — после запуска.
 

@@ -92,14 +92,45 @@ cd backend && uv run uvicorn geopuls.main:app --port 8000      # в отдель
 cd frontend && GEOPULS_LIVE_API_URL=http://127.0.0.1:8000 npm run test
 ```
 
-Либо весь стек одной командой (БД в Docker + API + фронтенд с логами в `data/processed/`):
+Либо весь локальный стек одной командой (БД в Docker + API и фронтенд нативно, с логами в `data/processed/`):
 
 ```powershell
-pwsh -File tools/dev-up.ps1      # поднимает и печатает ссылки
+pwsh -File tools/dev-up.ps1      # поднимает БД, API и фронтенд, печатает ссылки
 pwsh -File tools/dev-down.ps1    # останавливает
 ```
 
-Полный стек в контейнерах: `docker compose up --build` (db + api + web + caddy).
+## Весь стек в контейнерах
+
+Одна команда собирает и поднимает всё: PostgreSQL + PostGIS, API и фронтенд.
+
+```powershell
+pwsh -File tools/docker-up.ps1       # сборка образов + запуск + ожидание готовности
+# Карта: http://localhost:3000/?city=tomsk&category=cafe
+# API:   http://127.0.0.1:8000/docs
+pwsh -File tools/docker-down.ps1     # остановка (данные БД сохраняются)
+pwsh -File tools/docker-down.ps1 -Purge   # остановка и удаление тома с данными
+```
+
+Что происходит при запуске:
+
+- `db` — PostgreSQL 17 + PostGIS 3.5, данные в томе `pgdata`;
+- `api` — при старте применяет миграции Alembic и идемпотентно сидирует справочник категорий
+  (`backend/docker-entrypoint.sh`), затем поднимает Uvicorn; готовность проверяется `/healthz`;
+- `web` — Next.js (standalone-сборка), стартует только после healthy-API.
+
+Порты настраиваются через `.env` (`API_PORT`, `WEB_PORT`) — CORS API и адрес API для фронтенда
+следуют за ними. Прод-профиль с автоматическим HTTPS: `pwsh -File tools/docker-up.ps1 -Prod`
+(Caddy на 80/443, домен в `DOMAIN`).
+
+Данные OSM в контейнеры не входят: на свежем томе поднимается пустая сетка (категории уже есть).
+Город и объекты загружаются одной командой из данных на хосте (папка `data/` смонтирована в `/data`):
+
+```powershell
+docker compose run --rm api python -m geopuls.seed --city tomsk --city-name Томск `
+  --region "Томская область" --timezone Asia/Tomsk --boundary-file /data/raw/tomsk-boundary.json
+docker compose run --rm api python -m geopuls.importers.poi --pbf /data/raw/siberian-fed-district-latest.osm.pbf
+docker compose run --rm api python -m geopuls.aggregate --city tomsk
+```
 
 ## Структура репозитория
 

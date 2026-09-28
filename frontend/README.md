@@ -26,7 +26,7 @@ shared-модуль в `public/` — без этого библиотека не
 
 | Переменная | Назначение | По умолчанию |
 |---|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | адрес API | `http://localhost:8000` |
+| `NEXT_PUBLIC_API_BASE_URL` | адрес API; пустое значение — «тот же origin» (деплой за одним доменом, см. `infra/Caddyfile`) | `http://localhost:8000` |
 | `NEXT_PUBLIC_BASEMAP_STYLE_URL` | стиль подложки MapLibre | OpenFreeMap Liberty |
 | `GEOPULS_LIVE_API_URL` | включает «живые» тесты против реального API | — (тесты пропускаются) |
 | `GEOPULS_WEB_URL` | адрес проверяемого фронтенда для E2E | `http://localhost:3000` |

@@ -84,3 +84,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config > /dev/null
+
+  # Сборка образов проверяется отдельной задачей: Dockerfile — часть продукта,
+  # и его поломка не должна обнаруживаться только при деплое.
+  images:
+    name: docker (сборка образов)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Собрать образы API и фронтенда
+        run: docker compose build api web

@@ -45,6 +45,25 @@ describe("requestJson", () => {
 
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ headers: { accept: "application/json" } });
   });
+
+  it("пустая переменная окружения означает «тот же origin» (деплой за одним доменом)", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_API_BASE_URL = "";
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async () => jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const api = await import("./api");
+      await api.fetchCities();
+
+      const url = String(fetchMock.mock.calls[0][0]);
+      expect(url.startsWith(window.location.origin)).toBe(true);
+      expect(url).toContain("/api/v1/meta/cities");
+    } finally {
+      delete process.env.NEXT_PUBLIC_API_BASE_URL;
+      vi.resetModules();
+    }
+  });
 });
 
 describe("разбор ошибок RFC 9457", () => {

@@ -250,18 +250,31 @@ test("клик по ячейке показывает объекты, подсв
   });
   // Ждём, пока карта перестанет двигаться после подгонки по границам города
   await page.waitForFunction(() => !window.__geopulsMap!.isMoving(), null, { timeout: 30_000 });
+  // И пока не отрисуются непустые ячейки: иначе точку клика выбрать не из чего
+  await page.waitForFunction(
+    () => {
+      const features = window.__geopulsMap?.queryRenderedFeatures({ layers: ["cells-fill"] }) ?? [];
+      return features.some((feature) => {
+        const properties = (feature as { properties?: { count?: number } }).properties;
+        return (properties?.count ?? 0) > 0;
+      });
+    },
+    null,
+    { timeout: 30_000 },
+  );
   await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
 
-  // Сетку выбирает зум: ячейку берём того разрешения, которое сейчас на карте
-  const resolution = Number(
-    (await page.getByTestId("resolution").textContent())?.match(/res (\d)/)?.[1] ?? 9,
-  );
-  const candidates = await nonEmptyCells(request, resolution, 25);
+  // Сетку выбирает зум, и она меняется после подгонки по границам города: берём кандидатов
+  // из обеих сеток, а точку выбираем по той ячейке, что реально отрисована под курсором
+  const candidates = [
+    ...(await nonEmptyCells(request, 9, 20)),
+    ...(await nonEmptyCells(request, 8, 20)),
+  ];
 
   /*
    * Точку клика считаем в координатах канваса. Карта есть и под панелью инструментов, и под
-   * легендой, но клик по этим местам достаётся не карте, поэтому берём самую плотную ячейку,
-   * которая видна, не перекрыта оверлеями и действительно лежит под курсором.
+   * легендой, но клик по этим местам достаётся не карте, поэтому берём ячейку, которая видна,
+   * не перекрыта оверлеями и под курсором действительно лежит непустая ячейка.
    */
   const point = await page.evaluate(
     (targets: { h3: string; lat: number; lon: number }[]) => {
@@ -295,12 +308,12 @@ test("клик по ячейке показывает объекты, подсв
         if (covered) continue;
 
         const hit = map.queryRenderedFeatures([screen.x, screen.y], { layers: ["cells-fill"] })[0] as
-          | { id?: string; properties?: { h3?: string } }
+          | { id?: string; properties?: { h3?: string; count?: number } }
           | undefined;
         const hitId = hit?.id ?? hit?.properties?.h3;
-        if (hitId !== target.h3) continue;
+        if (!hitId || (hit?.properties?.count ?? 0) <= 0) continue;
 
-        return { h3: target.h3, x: screen.x, y: screen.y };
+        return { h3: String(hitId), x: screen.x, y: screen.y };
       }
 
       return null;
@@ -308,10 +321,10 @@ test("клик по ячейке показывает объекты, подсв
     candidates,
   );
 
-  console.log("КЛИК ПО ЯЧЕЙКЕ:", JSON.stringify({ resolution, point }));
+  console.log("КЛИК ПО ЯЧЕЙКЕ:", JSON.stringify({ point }));
 
   expect(point, "нужна видимая, не перекрытая ячейка с объектами").not.toBeNull();
-  const cell = { h3: point!.h3, lat: 0, lon: 0 };
+  const cell = { h3: point!.h3 };
 
   // Клик с координатами внутри элемента — без пересчёта в координаты окна
   await page.locator(".map__canvas").click({ position: { x: point!.x, y: point!.y } });
@@ -391,12 +404,14 @@ test("«Поделиться» кладёт ссылку в буфер обме�
   expect(copied).toContain("category=cafe");
 });
 
-test("экспорт PNG и CSV отдаёт настоящие файлы", async ({ page }) => {
+test("экспорт PNG и CSV отдаёт настоящие файлы", async ({ page, request }) => {
   await page.goto(MAP_URL);
   await waitForStyle(page);
   await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
     timeout: 30_000,
   });
+  await page.waitForFunction(() => !window.__geopulsMap!.isMoving(), null, { timeout: 30_000 });
+  await expect(page.getByTestId("data-version")).toContainText("Данные OSM на");
 
   const [png] = await Promise.all([
     page.waitForEvent("download"),
@@ -422,10 +437,19 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   ]);
   expect(csv.suggestedFilename()).toMatch(/^geopuls-.+-res\d+\.csv$/);
 
+  const apiBase = process.env.GEOPULS_API_URL ?? "http://127.0.0.1:8000";
+  const resolution = Number(
+    (await page.getByTestId("resolution").textContent())?.match(/res (\d)/)?.[1] ?? 9,
+  );
+  const grid = await request.get(
+    `${apiBase}/api/v1/cells?city=tomsk&category=cafe&res=${resolution}`,
+  );
+  const gridBody = (await grid.json()) as { meta: { cell_count: number } };
+
   const csvText = await readFile((await csv.path()) as string, "utf8");
   const lines = csvText.replace(/^\uFEFF/, "").trimEnd().split("\n");
   expect(lines[0]).toBe("h3,count,density_poi_per_km2,has_address_ratio,lat,lon");
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
-  expect(lines.length).toBeGreaterThan(1000);
+  expect(lines.length).toBe(gridBody.meta.cell_count + 1);
 });
 

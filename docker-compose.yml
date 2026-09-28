@@ -26,29 +26,46 @@ services:
       GEOPULS_ENVIRONMENT: ${GEOPULS_ENVIRONMENT:-local}
       GEOPULS_LOG_LEVEL: ${GEOPULS_LOG_LEVEL:-INFO}
       GEOPULS_GIT_SHA: ${GEOPULS_GIT_SHA:-}
-      GEOPULS_CORS_ORIGINS: '["http://localhost:3000"]'
+      GEOPULS_CORS_ORIGINS: '["http://localhost:${WEB_PORT:-3000}"]'
       GEOPULS_BASEMAP_STYLE_URL: ${GEOPULS_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
+    # Данные OSM и файл границы города нужны для команд импорта:
+    #   docker compose run --rm api python -m geopuls.importers.poi --pbf /data/raw/....osm.pbf
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   web:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-8000}}
         NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-8000}}
       NEXT_PUBLIC_BASEMAP_STYLE_URL: ${NEXT_PUBLIC_BASEMAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}
-      NEXT_PUBLIC_DATA_VERSION: ${NEXT_PUBLIC_DATA_VERSION:-демо-данные (Этап 0)}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # Обратный прокси с автоматическим TLS. Отдельный профиль, чтобы локальный запуск
