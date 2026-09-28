@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "prod:smoke": "node scripts/prod-smoke.mjs",
+    "prod:diagnose": "node scripts/prod-diagnose.mjs"
   },
   "dependencies": {
     "h3-js": "^4.5.0",

@@ -61,20 +61,31 @@ const marker = await page.evaluate(() => {
     .queryRenderedFeatures({ layers: ["cells-fill"] })
     .find((item) => item.properties.count > 0);
   if (!feature || feature.geometry.type !== "Polygon") return null;
-  const ring = feature.geometry.coordinates[0];
-  const lons = ring.map((point) => point[0]);
-  const lats = ring.map((point) => point[1]);
+  // Центр шестиугольника — среднее вершин кольца (без замыкающей точки): центр bbox может попасть
+  // в соседнюю ячейку и клик уйдёт не туда
+  const ring = feature.geometry.coordinates[0].slice(0, -1);
   const center = [
-    (Math.min(...lons) + Math.max(...lons)) / 2,
-    (Math.min(...lats) + Math.max(...lats)) / 2,
+    ring.reduce((sum, point) => sum + point[0], 0) / ring.length,
+    ring.reduce((sum, point) => sum + point[1], 0) / ring.length,
   ];
   const point = map.project(center);
-  return { x: point.x, y: point.y, count: feature.properties.count };
+  // project() возвращает координаты внутри канваса, а mouse.click работает в координатах страницы
+  const rect = map.getCanvas().getBoundingClientRect();
+  return { x: rect.left + point.x, y: rect.top + point.y, count: feature.properties.count };
 });
 let panel = "панель не открыта";
 if (marker) {
   await page.mouse.click(marker.x, marker.y);
   await page.waitForSelector(".poi-panel", { timeout: 30_000 });
+  // Ждём не открытия панели, а загрузки списка: именно на этом шаге API отвечал 404 с чужим res
+  await page.waitForFunction(
+    () => {
+      const text = document.querySelector(".poi-panel")?.textContent ?? "";
+      return text.length > 0 && !text.includes("Загружаем");
+    },
+    null,
+    { timeout: 30_000 },
+  );
   panel = await page.locator(".poi-panel").first().innerText();
 }
 
