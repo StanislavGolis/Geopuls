@@ -28,7 +28,7 @@ import {
   type ExportContext,
 } from "@/lib/export";
 import { formatDataVersion } from "@/lib/format";
-import { resolutionForZoom } from "@/lib/heat";
+import { resolutionForZoom, resolutionOfCell } from "@/lib/heat";
 import { EMPTY_URL_STATE, buildSearch, type UrlState } from "@/lib/urlState";
 
 export type MapExplorerProps = {
@@ -455,7 +455,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             city={citySlug}
             category={categorySlug}
             cell={selectedCell}
-            res={res}
+            // Разрешение берём у самой ячейки: состояние может опережать отрисованный слой при смене
+            // разрешения по зуму, и тогда запрос со «своим» res давал 404 (см. resolutionOfCell)
+            res={resolutionOfCell(selectedCell) ?? res}
             categoryNames={categoryNames}
             onClose={() => setSelectedCell(null)}
           />

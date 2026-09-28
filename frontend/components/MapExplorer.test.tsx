@@ -23,6 +23,10 @@ vi.mock("./MapView", () => ({
       <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
         клик по ячейке
       </button>
+      {/* Ячейка обзорного слоя: разрешение в состоянии и у ячейки может расходиться при смене по зуму */}
+      <button type="button" data-testid="click-cell-res8" onClick={() => onCellSelect("880b86a59dfffff")}>
+        клик по ячейке res 8
+      </button>
     </div>
   ),
 }));
@@ -263,6 +267,23 @@ describe("MapExplorer", () => {
     await waitFor(() => expect(window.location.search).toContain("cell=890b80db643ffff"));
     expect(window.location.search).toContain("city=tomsk");
     expect(window.location.search).toContain("category=cafe");
+  });
+
+  it("клик по ячейке другого разрешения запрашивает объекты с разрешением самой ячейки", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+
+    // Сразу после смены разрешения по зуму состояние уже res 9, а отрисован ещё обзорный слой:
+    // запрос со «своим» res давал 404 — разрешение обязано следовать за ячейкой
+    screen.getByTestId("click-cell-res8").click();
+
+    await screen.findByTestId("poi-panel");
+    expect(apiMock.fetchPois).toHaveBeenCalledWith({
+      city: "tomsk",
+      cell: "880b86a59dfffff",
+      res: 8,
+      category: "cafe",
+    });
   });
 
   it("смена города или категории закрывает список объектов прежней ячейки", async () => {

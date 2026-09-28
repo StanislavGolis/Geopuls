@@ -176,3 +176,22 @@ export function heatOutlineColorExpression(): unknown {
 export function resolutionForZoom(zoom: number): 8 | 9 {
   return zoom >= DETAIL_ZOOM ? 9 : 8;
 }
+
+/**
+ * Разрешение самой ячейки, взятое из её H3-индекса.
+ *
+ * Зачем не доверять состоянию интерфейса: разрешение переключается по зуму, и сразу после переключения
+ * на экране ещё может быть отрисован прежний слой. Запрос списка объектов тогда уходил с «новым» `res`
+ * и ячейкой старой сетки, и API отвечал 404 (ячейки с таким индексом в этой сетке нет) — это ловилось
+ * продовой проверкой `frontend/scripts/prod-smoke.mjs`.
+ *
+ * В H3-индексе разрешение лежит в битах 52–55 (0 — самое грубое), поэтому обходимся без импорта
+ * h3-js в рантайм: библиотека весит больше, чем стоит эта функция. Совпадение с `h3-js.getResolution`
+ * проверяется тестом.
+ */
+export function resolutionOfCell(h3: string): 8 | 9 | null {
+  if (!/^[0-9a-f]{15,16}$/i.test(h3)) return null;
+
+  const resolution = Number((BigInt(`0x${h3}`) >> 52n) & 0xfn);
+  return resolution === 8 || resolution === 9 ? resolution : null;
+}

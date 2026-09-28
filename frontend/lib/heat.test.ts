@@ -14,6 +14,7 @@ import {
   heatOutlineColorExpression,
   legendItems,
   rampIndexes,
+  resolutionOfCell,
   resolutionForZoom,
 } from "./heat";
 
@@ -135,6 +136,29 @@ describe("правила отрисовки ячеек", () => {
       EMPTY_CELL_STROKE,
       "rgba(255, 255, 255, 0.45)",
     ]);
+  });
+});
+
+describe("resolutionOfCell", () => {
+  it("берёт разрешение из индекса ячейки", () => {
+    expect(resolutionOfCell("890b80db643ffff")).toBe(9);
+    expect(resolutionOfCell("880b86a59dfffff")).toBe(8);
+  });
+
+  it("совпадает с h3-js: своя реализация не должна расходиться с библиотекой", async () => {
+    const { getResolution } = await import("h3-js");
+    const cells = ["890b80db643ffff", "880b86a59dfffff", "8928308280fffff", "8828308281fffff"];
+
+    for (const cell of cells) {
+      expect(resolutionOfCell(cell)).toBe(getResolution(cell));
+    }
+  });
+
+  it("не падает на мусоре и на неподдерживаемом разрешении", () => {
+    expect(resolutionOfCell("не-индекс")).toBeNull();
+    expect(resolutionOfCell("")).toBeNull();
+    // res 7 (8400000ffffffff) и res 10 приложение не рисует
+    expect(resolutionOfCell("8700000ffffffff")).toBeNull();
   });
 });
 
