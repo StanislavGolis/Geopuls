@@ -36,6 +36,14 @@ notify() {
 
 mkdir -p "$RAW_DIR"
 
+# Выгрузку скачивает root на хосте, а импорт идёт в контейнере от непривилегированного пользователя
+# `app`: он пишет файл кандидатов рядом с PBF. Без смены владельца каталога импорт падал с
+# PermissionError (проверено на проде) — отдаём каталог и файл пользователю контейнера.
+API_USER="$(docker compose exec -T api id -u 2>/dev/null | tr -dc '0-9' || true)"
+API_GROUP="$(docker compose exec -T api id -g 2>/dev/null | tr -dc '0-9' || true)"
+API_USER="${API_USER:-1000}"
+API_GROUP="${API_GROUP:-1000}"
+
 if [ "$SKIP_DOWNLOAD" = "0" ]; then
     log "скачиваю выгрузку, если на сервере появилась новее: $PBF_URL"
     # curl -z: файл не будет скачан заново, если серверная копия не новее
@@ -45,6 +53,10 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
     fi
     log "файл на месте: $PBF_PATH ($(du -h "$PBF_PATH" | cut -f1), изменён $(date -Is -r "$PBF_PATH"))"
 fi
+
+# Владелец данных: контейнер должен иметь право писать рядом с выгрузкой (см. комментарий выше)
+chown "$API_USER:$API_GROUP" "$RAW_DIR" 2>/dev/null || true
+[ -f "$PBF_PATH" ] && chown "$API_USER:$API_GROUP" "$PBF_PATH" 2>/dev/null || true
 
 if [ "$SKIP_IMPORT" = "1" ]; then
     log "пересобираю только агрегаты (импорт POI пропущен)"
