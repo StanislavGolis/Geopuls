@@ -12,7 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geopuls import __version__
-from geopuls.main import app
+from geopuls.config import get_settings
+from geopuls.main import app, create_app
 
 DB_IS_AVAILABLE = os.getenv("GEOPULS_CI_DB") == "1"
 
@@ -47,11 +48,16 @@ def test_root_redirects_to_docs() -> None:
 
 
 def test_readyz_contract_without_database() -> None:
-    """Без БД /readyz обязан отвечать 503 по контракту, а не 500."""
-    if DB_IS_AVAILABLE:
-        pytest.skip("в CI поднята тестовая БД — проверяется отдельным тестом")
+    """Недоступная БД: /readyz обязан отвечать 503 по контракту, а не 500.
 
-    with TestClient(app) as client:
+    Адрес БД задаём явно (порт, на котором ничего не слушает), чтобы результат не зависел
+    от того, поднята ли на машине разработчика PostGIS.
+    """
+    settings = get_settings().model_copy(
+        update={"database_url": "postgresql+asyncpg://geopuls:geopuls@127.0.0.1:1/geopuls"}
+    )
+
+    with TestClient(create_app(settings)) as client:
         response = client.get("/readyz")
 
     assert response.status_code == 503
