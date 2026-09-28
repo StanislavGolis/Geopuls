@@ -522,19 +522,21 @@ async def finish_import_run(
     status: str,
     osm_timestamp: str | None = None,
     pois_upserted: int = 0,
+    cells_written: int = 0,
     error: str | None = None,
 ) -> None:
     timestamp = datetime.fromisoformat(osm_timestamp.replace("Z", "+00:00")) if osm_timestamp else None
     await session.execute(
         text(
             "UPDATE import_runs SET finished_at = now(), status = :status, osm_timestamp = :osm_timestamp, "
-            "pois_upserted = :pois_upserted, error = :error WHERE id = :id"
+            "pois_upserted = :pois_upserted, cells_written = :cells_written, error = :error WHERE id = :id"
         ),
         {
             "id": run_id,
             "status": status,
             "osm_timestamp": timestamp,
             "pois_upserted": pois_upserted,
+            "cells_written": cells_written,
             "error": error,
         },
     )

@@ -80,6 +80,23 @@ uv run python -m geopuls.importers.poi --pbf ..\data\raw\... --limit 2000
 (res 9 и 8), мягкое удаление исчезнувших из OSM объектов (`is_active = false`), запись
 `data_versions` и журнала `import_runs`. Механика и обоснование — `docs/decisions/0005-poi-import.md`.
 
+## Агрегация H3 (Этап 3)
+
+После импорта POI нужно пересобрать сетку города и статистику по ячейкам:
+
+```powershell
+cd backend
+uv run python -m geopuls.aggregate --city tomsk             # res 9 и 8
+uv run python -m geopuls.aggregate --city tomsk --dry-run   # посчитать без записи в БД
+uv run python -m geopuls.aggregate --city tomsk --res 9     # только детальный слой
+```
+
+Команда строит полную сетку по полигону города (включая **пустые** ячейки), считает плотность
+POI/км² и долю адресов, а также границы классов легенды. Площадь сетки сверяется с площадью
+полигона: при расхождении больше ±15% печатается предупреждение (`--strict` делает это ошибкой
+с кодом 3). Запуск занимает секунды — пересобирайте после каждого импорта.
+Подробности и замеры — `docs/decisions/0006-h3-aggregation.md`.
+
 ## Что где лежит
 
 | Каталог | Назначение | В git |
