@@ -518,7 +518,7 @@ test("тепловой слой не скрывает подложку: зали
   expect(empties).toBeLessThan(filled);
 });
 
-test("панель слоёв говорит, чем красится карта, и попадает в ссылку", async ({ page }) => {
+test("панель слоёв показывает основу карты, а слои попадают в ссылку", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
   await waitForStyle(page);
@@ -526,14 +526,18 @@ test("панель слоёв говорит, чем красится карта
     timeout: 30_000,
   });
 
-  // Панель строится из реестра слоёв: базовый слой выбран, его вариант подписан
+  // Панель строится из реестра слоёв: основа карты одна и не переключается
   const panel = page.getByLabel("Слои карты");
   await expect(panel).toBeVisible();
-  await expect(page.getByTestId("base-competitors")).toBeChecked();
-  await expect(page.getByLabel("Категория слоя Конкуренты (объекты по категориям)")).toBeVisible();
+  await expect(panel.getByTestId("layer-base")).toContainText("Конкуренты");
+  await expect(panel.getByTestId("layer-transport")).not.toBeChecked();
 
   // Ссылку собирает сама карта: набор слоёв должен быть в адресе, иначе им нельзя поделиться
   await expect(page).toHaveURL(/base=competitors(:|%3A)cafe/);
+
+  await panel.getByTestId("layer-transport").check();
+
+  await expect(page).toHaveURL(/overlays=transport/);
   // Источник с лицензией виден в панели: слой без атрибуции показывать нельзя
   await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
 });

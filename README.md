@@ -41,7 +41,7 @@ curl "http://localhost:8000/api/v1/cells?city=tomsk&category=cafe&res=8"    # о
 curl "http://localhost:8000/api/v1/pois?city=tomsk&cell=890b80db643ffff"    # объекты ячейки
 curl "http://localhost:8000/api/v1/layers?city=tomsk"                       # реестр слоёв
 curl "http://localhost:8000/api/v1/map?city=tomsk&base=competitors:cafe"    # карта слоями: 281 КБ JSON, геометрия один раз
-curl "http://localhost:8000/api/v1/map?city=tomsk&base=competitors:cafe&overlays=population"  # базовый слой + наложение
+curl "http://localhost:8000/api/v1/map?city=tomsk&base=competitors:cafe&overlays=population"  # карта конкурентов + числа по слою населения
 ```
 
 Документация и схема — `http://localhost:8000/docs` (OpenAPI). Полное описание контракта, кодов

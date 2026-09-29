@@ -172,16 +172,6 @@ export function heatOutlineColorExpression(): unknown {
   return ["case", ["<=", ["get", "value"], 0], EMPTY_CELL_STROKE, "rgba(255, 255, 255, 0.45)"];
 }
 
-/**
- * Наложение рисуется контуром цвета слоя там, где у слоя есть значение.
- *
- * Нули и `null` (нет данных) остаются прозрачными: наложение показывает присутствие явления, а не
- * закрашивает карту вторым тепловым слоем — две заливки друг поверх друга нечитаемы (ADR 0013).
- */
-export function overlayOutlineColorExpression(property: string, color: string): unknown {
-  return ["case", [">", ["get", property], 0], color, "rgba(255, 255, 255, 0)"];
-}
-
 /** Разрешение H3 по зуму карты: обзор города — 8, улицы — 9 (раздел 4.3 ТЗ). */
 export function resolutionForZoom(zoom: number): 8 | 9 {
   return zoom >= DETAIL_ZOOM ? 9 : 8;

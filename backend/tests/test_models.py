@@ -34,7 +34,26 @@ def test_pois_unique_key_and_indexes() -> None:
         tuple(constraint.columns.keys()) for constraint in pois.constraints if isinstance(constraint, UniqueConstraint)
     }
     assert ("osm_type", "osm_id") in unique_columns
-    assert {index.name for index in pois.indexes} == {"ix_pois_h3_r8", "ix_pois_h3_r9", "ix_pois_location"}
+    # `ix_pois_geometry` появился на Этапе 9: площади и длины считает PostGIS по геометрии way
+    assert {index.name for index in pois.indexes} == {
+        "ix_pois_h3_r8",
+        "ix_pois_h3_r9",
+        "ix_pois_location",
+        "ix_pois_geometry",
+    }
+
+
+def test_spatial_metric_columns_have_indexes() -> None:
+    """Метрики площади и длины (Этап 9): геометрия объектов и границы ячеек с GiST-индексами."""
+    pois = Base.metadata.tables["pois"]
+    city_cells = Base.metadata.tables["city_cells"]
+
+    assert isinstance(pois.c.geometry.type, Geography)
+    assert isinstance(city_cells.c.boundary.type, Geography)
+    # Узлы OSM геометрии не имеют, а сетки городов собирались до Этапа 9: колонки обязаны быть nullable
+    assert pois.c.geometry.nullable is True
+    assert city_cells.c.boundary.nullable is True
+    assert "ix_city_cells_boundary" in {index.name for index in city_cells.indexes}
 
 
 def test_h3_columns_are_bigint_for_fast_aggregation() -> None:

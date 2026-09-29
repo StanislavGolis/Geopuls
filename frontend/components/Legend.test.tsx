@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import Legend, { type LegendOverlay } from "./Legend";
+import Legend from "./Legend";
 import { ZERO_COLOR, heatColors } from "@/lib/heat";
 import type { LayerLegend } from "@/lib/layers";
 
@@ -17,13 +17,6 @@ function layer(overrides: Partial<LayerLegend> = {}): LayerLegend {
     ...overrides,
   };
 }
-
-const OVERLAY: LegendOverlay = {
-  slug: "population",
-  name: "Население",
-  color: "#334155",
-  nonEmptyCount: 120,
-};
 
 describe("Legend", () => {
   it("показывает классы с подписями и цветами по границам из API", () => {
@@ -58,17 +51,6 @@ describe("Legend", () => {
 
     expect(screen.getByTestId("resolution").textContent).toContain("res 8");
     expect(screen.getByText("в слое 1 объект")).toBeTruthy();
-  });
-
-  it("перечисляет наложения с их цветом и охватом", () => {
-    const { container } = render(<Legend layer={layer()} overlays={[OVERLAY]} />);
-
-    expect(screen.getByText("Наложения (контур)")).toBeTruthy();
-    expect(screen.getByText("Население")).toBeTruthy();
-    expect(screen.getByText("120 объектов")).toBeTruthy();
-
-    const outline = container.querySelector<HTMLElement>(".legend__swatch--outline");
-    expect(outline?.style.borderColor).toBe("rgb(51, 65, 85)");
   });
 
   it("предупреждает, если объектов в OSM мало", () => {

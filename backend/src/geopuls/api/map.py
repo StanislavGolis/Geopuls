@@ -13,8 +13,9 @@
     ``values[i] = 0``     — в ячейке объектов нет: это и есть «пустая зона», продукт сервиса;
     ``values[i] = null``  — у слоя нет значения для этой ячейки (слой собран не по всей сетке).
 
-Правило читаемости («карту красит один слой, наложений не больше двух», ADR 0013) проверяется
-здесь, а не только в интерфейсе: контракт не должен позволять запросить нечитаемую карту.
+Карту красит один слой (`base`, «Конкуренты»): заливка одна, иначе карта нечитаема. Остальные слои —
+дополнительные: их значения читаются по этой же ячейке в карточке ячейки, а на карту не рисуются.
+Лимит `MAX_OVERLAYS` поэтому технический: он держит размер ответа, а не читаемость картинки.
 """
 
 from __future__ import annotations
@@ -40,8 +41,10 @@ from geopuls.api.schemas import MapCellsOut, MapLayerColumn, MapMeta, MapRespons
 
 router = APIRouter(prefix="/api/v1", tags=["map"])
 
-#: Сколько наложений разрешено поверх базового слоя (ADR 0013): карта обязана остаться читаемой.
-MAX_OVERLAYS = 2
+#: Сколько слоёв можно запросить вместе с базовым. Раньше ограничение было продуктовым — оно защищало
+#: читаемость карты, потому что наложения рисовались контурами поверх заливки. Теперь слои не рисуются,
+#: а дают числа для карточки ячейки, поэтому лимит стал техническим: он держит размер ответа разумным.
+MAX_OVERLAYS = 6
 #: Формат slug слоя и категории: латиница в нижнем регистре (как в справочниках).
 LAYER_REF_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -108,7 +111,7 @@ def parse_overlays(raw: str | None) -> list[tuple[str, str | None]]:
     if len(refs) > MAX_OVERLAYS:
         raise ProblemException(
             400,
-            f"Наложений не может быть больше {MAX_OVERLAYS}: карта станет нечитаемой (ADR 0013)",
+            f"Слоёв в одном запросе не может быть больше {MAX_OVERLAYS}: ответ станет слишком тяжёлым",
         )
     return refs
 
@@ -198,7 +201,10 @@ async def get_map(
     city: Annotated[str, Query(description="slug города, например tomsk")],
     base: Annotated[str, Query(description="базовый слой, который красит карту: slug или slug:category")],
     res: Annotated[int, Query(ge=8, le=9, description="разрешение H3 (8 — обзор, 9 — детально)")] = 9,
-    overlays: Annotated[str | None, Query(description="наложения через запятую (не больше двух)")] = None,
+    overlays: Annotated[
+        str | None,
+        Query(description=f"дополнительные слои через запятую (не больше {MAX_OVERLAYS})"),
+    ] = None,
     bbox: Annotated[str | None, Query(description="min_lon,min_lat,max_lon,max_lat")] = None,
 ) -> MapResponse | Response:
     """Геометрия сетки один раз и колонки значений всех запрошенных слоёв.

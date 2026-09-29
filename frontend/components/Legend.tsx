@@ -7,20 +7,9 @@ import { pluralObjects } from "@/lib/format";
 import { legendItems } from "@/lib/heat";
 import { metricLabel, type LayerLegend } from "@/lib/layers";
 
-/** Наложение в легенде: цвет контура на карте должен быть объяснён, вместе с охватом. */
-export type LegendOverlay = {
-  slug: string;
-  name: string;
-  color: string;
-  /** Сколько ячеек закрашено контуром: «есть на карте» без числа — не информация. */
-  nonEmptyCount: number;
-};
-
 export type LegendProps = {
   /** Базовый слой: его значениями раскрашена карта (null — данные ещё не приехали). */
   layer: LayerLegend | null;
-  /** Наложения: показываем цвет контура и охват, иначе контуры на карте не с чем соотнести. */
-  overlays?: LegendOverlay[];
   /** Разрешение текущей сетки — показываем в легенде, а не в шапке. */
   res?: number;
   /** Порог, ниже которого честно предупреждаем о неполноте данных. */
@@ -29,9 +18,9 @@ export type LegendProps = {
   partialCoverage?: boolean;
 };
 
+/** Легенда отвечает только за заливку карты: дополнительные слои дают числа в карточке ячейки. */
 export default function Legend({
   layer,
-  overlays = [],
   res,
   thinDataThreshold = 30,
   partialCoverage = false,
@@ -77,25 +66,6 @@ export default function Legend({
             </li>
           ))}
         </ul>
-
-        {overlays.length > 0 && (
-          <div className="legend__overlays" data-testid="legend-overlays">
-            <h3 className="legend__subtitle">Наложения (контур)</h3>
-            <ul className="legend__list">
-              {overlays.map((overlay) => (
-                <li className="legend__item" key={overlay.slug}>
-                  <span
-                    className="legend__swatch legend__swatch--outline"
-                    style={{ borderColor: overlay.color }}
-                    aria-hidden="true"
-                  />
-                  <span>{overlay.name}</span>
-                  <span className="legend__note">{pluralObjects(overlay.nonEmptyCount)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {isThin && <p className="legend__warning">Мало данных OSM — карта может быть неполной</p>}
         {partialCoverage && (

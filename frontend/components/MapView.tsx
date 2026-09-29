@@ -11,22 +11,17 @@ import {
   type StyleSpecification,
 } from "maplibre-gl";
 
-import type { CityMeta, LayerGrid, MapLayerColumn } from "@/lib/api";
+import type { CityMeta, LayerGrid } from "@/lib/api";
+import { fetchPois, type PoiItem } from "@/lib/api";
 import {
   SELECTED_CELL_COLOR,
   heatColorExpression,
   heatFillOpacityExpression,
   heatOutlineColorExpression,
-  overlayOutlineColorExpression,
   resolutionForZoom,
+  resolutionOfCell,
 } from "@/lib/heat";
-import {
-  baseColumn,
-  buildCellFeatures,
-  overlayColumns,
-  overlayProperty,
-  type CellFeatureCollection,
-} from "@/lib/layers";
+import { baseColumn, buildCellFeatures, type CellFeatureCollection } from "@/lib/layers";
 
 /**
  * URL воркера MapLibre. Файлы кладутся в `public/` скриптом `scripts/copy-maplibre-worker.mjs`
@@ -83,50 +78,32 @@ export type MapViewProps = {
 
 const CELLS_SOURCE = "cells";
 const CELLS_LAYER = "cells-fill";
-/** Наложения рисуются контуром: слой на ячейку, потому что заливка одна (ADR 0013). */
-const OVERLAY_LAYER_PREFIX = "cells-overlay-";
 const SELECTED_SOURCE = "cells-selected";
 const SELECTED_LAYER = "cells-selected-outline";
+/** Точки объектов выбранной ячейки: «где именно стоят эти бизнесы» — ответ на клик по гексу. */
+const POIS_SOURCE = "cell-pois";
+const POIS_LAYER = "cell-pois-points";
+/** Цвет точек совпадает с акцентом выбранной ячейки: видно, что они связаны. */
+const POI_COLOR = "#1d4ed8";
 
-/**
- * Привести контуры наложений в соответствие с набором слоёв: лишние убрать, недостающие добавить.
- *
- * Наложения — контурные слои поверх заливки базового слоя. Двух наложений достаточно, потому что
- * больше контуров разного цвета на одной карте уже не читаются (ADR 0013).
- */
-function syncOverlayLayers(map: MapLibreMap, columns: MapLayerColumn[]): void {
-  const wanted = new Map(columns.map((column) => [`${OVERLAY_LAYER_PREFIX}${column.slug}`, column]));
-
-  for (const layer of map.getStyle()?.layers ?? []) {
-    if (layer.id.startsWith(OVERLAY_LAYER_PREFIX) && !wanted.has(layer.id)) {
-      map.removeLayer(layer.id);
-    }
-  }
-
-  for (const [id, column] of wanted) {
-    if (!map.getLayer(id)) {
-      map.addLayer({
-        id,
-        type: "line",
-        source: CELLS_SOURCE,
-        paint: { "line-color": "rgba(255, 255, 255, 0)", "line-width": 1.4 },
-      });
-    }
-    map.setPaintProperty(
-      id,
-      "line-color",
-      overlayOutlineColorExpression(overlayProperty(column.slug), column.color) as never,
-    );
-  }
-
-  // Подсветка выбранной ячейки обязана оставаться сверху: иначе её перекроет контур наложения
-  if (map.getLayer(SELECTED_LAYER)) {
-    map.moveLayer(SELECTED_LAYER);
-  }
+/** Точки объектов ячейки в форме GeoJSON: координаты уже в порядке ``[lon, lat]``. */
+function poiCollection(items: PoiItem[]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: items.map((item) => ({
+      type: "Feature",
+      id: `${item.osm_type}-${item.osm_id}`,
+      properties: { name: item.name ?? "" },
+      geometry: { type: "Point", coordinates: [item.lon, item.lat] },
+    })),
+  } as GeoJSON.FeatureCollection;
 }
 
 /** Сколько ждать стиль подложки перед переходом на минимальный локальный стиль. */
 const STYLE_TIMEOUT_MS = 8000;
+
+/** Сколько точек ячейки запрашивать для показа на карте: больше в один гекс не помещается. */
+const POIS_LIMIT = 200;
 
 /**
  * Минимальный стиль без внешних источников: нужен, чтобы тепловой слой рисовался,
@@ -182,6 +159,8 @@ export default function MapView({
 
   const [webglMissing, setWebglMissing] = useState(false);
   const [basemapWarning, setBasemapWarning] = useState<string | null>(null);
+  /** Точки объектов выбранной ячейки: где именно стоят бизнесы внутри гекса. */
+  const [cellPois, setCellPois] = useState<PoiItem[]>([]);
 
   latestGridRef.current = grid;
   resolveRef.current = onResolutionChange;
@@ -218,8 +197,6 @@ export default function MapView({
       map.setPaintProperty(CELLS_LAYER, "fill-opacity", heatFillOpacityExpression() as never);
       map.setPaintProperty(CELLS_LAYER, "fill-outline-color", heatOutlineColorExpression() as never);
     }
-
-    syncOverlayLayers(map, current ? overlayColumns(current) : []);
   }, []);
 
   /** Контур выбранной ячейки: показываем ровно ту ячейку, для которой открыт список объектов. */
@@ -273,6 +250,20 @@ export default function MapView({
         type: "line",
         source: SELECTED_SOURCE,
         paint: { "line-color": SELECTED_CELL_COLOR, "line-width": 2 },
+      });
+
+      // Точки объектов ячейки: где именно стоят бизнесы — это ответ на клик по гексу
+      map.addSource(POIS_SOURCE, { type: "geojson", data: emptyCollection() });
+      map.addLayer({
+        id: POIS_LAYER,
+        type: "circle",
+        source: POIS_SOURCE,
+        paint: {
+          "circle-radius": 4,
+          "circle-color": POI_COLOR,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
       });
 
       map.on("mouseenter", CELLS_LAYER, () => {
@@ -401,7 +392,7 @@ export default function MapView({
     });
   }, [city]);
 
-  // Обновление данных: заливка базового слоя перекрашивается, состав наложений синхронизируется
+  // Обновление данных: заливка базового слоя перекрашивается
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getSource(CELLS_SOURCE)) return;
@@ -409,6 +400,52 @@ export default function MapView({
     applyGrid(map);
     applySelected(map, selectedCell);
   }, [grid, selectedCell, applyGrid, applySelected]);
+
+  /**
+   * Точки объектов выбранной ячейки.
+   *
+   * Запрос делает карта, а список объектов — панель: каждый компонент запрашивает то, что показывает,
+   * а ответ `/pois` кэшируется браузером, поэтому дублирование бесплатно. Ошибку здесь глушим
+   * осознанно: точки — подсказка «где именно», а не данные, и панель сообщит о проблеме сама.
+   */
+  useEffect(() => {
+    if (!selectedCell) {
+      setCellPois([]);
+      return;
+    }
+
+    let cancelled = false;
+    const cellResolution = resolutionOfCell(selectedCell) ?? city.h3_res;
+    (async () => {
+      try {
+        const response = await fetchPois({
+          city: city.slug,
+          cell: selectedCell,
+          res: cellResolution,
+          limit: POIS_LIMIT,
+        });
+        if (!cancelled) setCellPois(response.items);
+      } catch {
+        if (!cancelled) setCellPois([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [city.slug, city.h3_res, selectedCell]);
+
+  // Точки на карте: держим слой поверх заливки и подсветки, чтобы гекс не прятал свои же объекты
+  useEffect(() => {
+    const map = mapRef.current;
+    const source = map?.getSource(POIS_SOURCE) as GeoJSONSource | undefined;
+    if (!map || !source) return;
+
+    source.setData(poiCollection(cellPois));
+    if (map.getLayer(POIS_LAYER)) {
+      map.moveLayer(POIS_LAYER);
+    }
+  }, [cellPois, grid]);
 
   // Подсветка выбранной ячейки
   useEffect(() => {

@@ -42,7 +42,14 @@ const LAYERS: LayerMeta[] = [
     categories: ["bar", "cafe"],
     source: OSM,
   }),
-  layer({ slug: "population", name: "Население", metric_kind: "people_density", unit: "чел/км²", can_be_base: true }),
+  layer({
+    slug: "population",
+    name: "Население",
+    metric_kind: "people_density",
+    unit: "чел/км²",
+    can_be_base: true,
+    source: OSM,
+  }),
   layer({ slug: "transport", name: "Транспорт", color: "#0f766e" }),
   layer({ slug: "pedestrian", name: "Пешеходные пути", metric_kind: "length", unit: "км" }),
 ];
@@ -91,17 +98,14 @@ const GRID: LayerGrid = {
   },
 };
 
-const CATEGORY_NAMES = { bar: "Бары и пабы", cafe: "Кофейни и кафе" };
-
 function renderPanel(overrides: Partial<React.ComponentProps<typeof LayerPanel>> = {}) {
   const props = {
     layers: LAYERS,
-    base: { slug: "competitors", category: "cafe" },
-    overlays: [] as { slug: string; category: string | null }[],
+    base: LAYERS[0],
+    active: [] as { slug: string; category: string | null }[],
     grid: GRID,
-    categoryNames: CATEGORY_NAMES,
-    onSelectBase: vi.fn(),
-    onToggleOverlay: vi.fn(),
+    categoryName: "Кофейни и кафе",
+    onToggle: vi.fn(),
     ...overrides,
   };
 
@@ -110,74 +114,70 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof LayerPanel>>
 }
 
 describe("LayerPanel", () => {
-  it("показывает базовыми только те слои, которыми можно красить карту", () => {
+  it("показывает основу карты как факт: переключателя базового слоя нет", () => {
     renderPanel();
 
-    expect(screen.getByTestId("base-competitors")).toBeTruthy();
-    expect(screen.getByTestId("base-population")).toBeTruthy();
-    // Транспорт и пешеходные пути карту не красят: для них остаётся только наложение
-    expect(screen.queryByTestId("base-transport")).toBeNull();
-    expect(screen.getByTestId("overlay-transport")).toBeTruthy();
+    // Смена основы меняла бы главный ответ приложения, поэтому такой возможности в интерфейсе нет
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByTestId("base-population")).toBeNull();
+
+    const base = within(screen.getByTestId("layer-base"));
+
+    expect(base.getByText("Конкуренты (объекты по категориям) · Кофейни и кафе")).toBeTruthy();
+    expect(base.getByText(/всегда включён/)).toBeTruthy();
   });
 
-  it("отмечает выбранный базовый слой и даёт сменить его вариант", () => {
-    const props = renderPanel();
-
-    expect((screen.getByTestId("base-competitors") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByTestId("base-category-competitors")).toBeTruthy();
-
-    fireEvent.change(screen.getByTestId("base-category-competitors"), { target: { value: "bar" } });
-
-    expect(props.onSelectBase).toHaveBeenCalledWith({ slug: "competitors", category: "bar" });
-  });
-
-  it("не предлагает базовый слой как собственное наложение", () => {
+  it("не предлагает основу как дополнительный слой: она уже на карте", () => {
     renderPanel();
 
-    const baseAsOverlay = screen.getByTestId("overlay-competitors") as HTMLInputElement;
-    // Слой нельзя наложить сам на себя: это запрещает и API, и панель
-    expect(baseAsOverlay.disabled).toBe(true);
-    expect(screen.getByText("уже красит карту")).toBeTruthy();
+    expect(screen.queryByTestId("layer-competitors")).toBeNull();
+    expect(screen.getByTestId("layer-transport")).toBeTruthy();
   });
 
-  it("включает наложение с его первым вариантом", () => {
+  it("включает слой его первым вариантом", () => {
     const props = renderPanel();
 
-    fireEvent.click(screen.getByTestId("overlay-transport"));
+    fireEvent.click(screen.getByTestId("layer-transport"));
 
-    expect(props.onToggleOverlay).toHaveBeenCalledWith({ slug: "transport", category: null });
+    expect(props.onToggle).toHaveBeenCalledWith({ slug: "transport", category: null });
   });
 
-  it("у включённого наложения можно сменить вариант", () => {
-    const props = renderPanel({ overlays: [{ slug: "competitors", category: "cafe" }] });
+  it("выключённый слой не подписывает метрикой, включённый — подписывает", () => {
+    const props = renderPanel();
 
-    fireEvent.change(screen.getByTestId("overlay-category-competitors"), { target: { value: "bar" } });
+    expect(screen.queryByText(/чел\/км²/)).toBeNull();
 
-    expect(props.onToggleOverlay).toHaveBeenCalledWith({ slug: "competitors", category: "bar" });
+    props.active.push({ slug: "population", category: null });
+    fireEvent.click(screen.getByTestId("layer-transport"));
+
+    expect(props.onToggle).toHaveBeenCalled();
   });
 
-  it("при двух наложениях блокирует третье и объясняет почему", () => {
+  it("под включённым слоем пишет метрику и честно говорит, если данных ещё нет", () => {
     renderPanel({
-      overlays: [
+      active: [
         { slug: "population", category: null },
         { slug: "transport", category: null },
       ],
     });
 
-    // Лимит ADR 0013: третье наложение сделать нечитаемым карту не даём
-    expect((screen.getByTestId("overlay-pedestrian") as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText("сначала снимите другое наложение")).toBeTruthy();
+    // Транспорта в этой сетке нет: обещать его числа нельзя
+    expect(screen.getByText(/данные ещё собираются/)).toBeTruthy();
+    expect(screen.getAllByText(/чел\/км²/).length).toBeGreaterThan(0);
   });
 
-  it("показывает метрику, покрытие и источник каждого активного слоя", () => {
-    renderPanel({ overlays: [{ slug: "population", category: null }] });
+  it("объясняет, что слои дают числа в карточке выбранной ячейки", () => {
+    renderPanel();
 
-    // Список слоёв под картой: имя, метрика, покрытие и атрибуция — без них слой выглядит полным
+    expect(screen.getByText(/карточке выбранной ячейки/)).toBeTruthy();
+  });
+
+  it("показывает покрытие и источник каждого включённого слоя", () => {
+    renderPanel({ active: [{ slug: "population", category: null }] });
+
     const sources = within(screen.getByTestId("layer-sources"));
 
-    expect(sources.getByText("Конкуренты (объекты по категориям) · Кофейни и кафе")).toBeTruthy();
     expect(sources.getByText("Население")).toBeTruthy();
-    expect(sources.getByText("Плотность, POI/км²")).toBeTruthy();
     expect(sources.getByText("собрано по 1200 из 1507 ячеек")).toBeTruthy();
     expect(sources.getAllByText("© OpenStreetMap contributors").length).toBeGreaterThan(0);
   });

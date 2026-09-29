@@ -366,6 +366,42 @@ describe("MapExplorer", () => {
     });
   });
 
+  it("дополнительный слой добавляет числа в карточку выбранной ячейки", async () => {
+    apiMock.fetchLayerGrid.mockResolvedValue({
+      ...GRID,
+      layers: [
+        ...GRID.layers,
+        {
+          ...GRID.layers[0],
+          slug: "population",
+          name: "Население",
+          category: null,
+          role: "overlay" as const,
+          metric_kind: "people_density",
+          unit: "чел/км²",
+          values: [4321.5],
+        },
+      ],
+    });
+
+    render(
+      <MapExplorer
+        styleUrl="style.json"
+        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", overlays: "population" }}
+      />,
+    );
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    screen.getByTestId("click-cell").click();
+
+    // Числа слоя читаются по той же ячейке: пользователь не переключает карту, а уточняет ответ
+    const metrics = await screen.findByTestId("cell-metrics");
+
+    expect(metrics.textContent).toContain("Население");
+    expect(metrics.textContent).toContain("4321.5 чел/км²");
+    expect(metrics.textContent).toContain("Плотность населения");
+  });
+
   it("смена категории закрывает список объектов прежней ячейки", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
@@ -382,11 +418,11 @@ describe("MapExplorer", () => {
     expect(window.location.search).not.toContain("cell=");
   });
 
-  it("включение наложения меняет запрос и попадает в ссылку", async () => {
+  it("включение слоя меняет запрос и попадает в ссылку", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("overlay-transport"));
+    fireEvent.click(screen.getByTestId("layer-transport"));
 
     await waitFor(() =>
       expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
@@ -396,33 +432,32 @@ describe("MapExplorer", () => {
     expect(window.location.search).toContain("overlays=transport");
   });
 
-  it("третье наложение включить нельзя — панель объясняет ограничение", async () => {
+  it("слои включаются все: они не спорят за одну карту", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("overlay-transport"));
-    fireEvent.click(screen.getByTestId("overlay-population"));
+    fireEvent.click(screen.getByTestId("layer-transport"));
+    fireEvent.click(screen.getByTestId("layer-population"));
     await waitFor(() => expect(window.location.search).toContain("overlays=transport,population"));
 
-    // Лимит ADR 0013: два наложения — предел читаемости карты
-    expect((screen.getByTestId("overlay-pedestrian") as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText("сначала снимите другое наложение")).toBeTruthy();
+    // Раньше третье наложение запрещалось: контуры делали карту нечитаемой. Теперь слои дают числа
+    // в карточке ячейки, поэтому ограничения в интерфейсе нет.
+    const third = screen.getByTestId("layer-pedestrian") as HTMLInputElement;
+    expect(third.disabled).toBe(false);
+    fireEvent.click(third);
+    await waitFor(() => expect(window.location.search).toContain("overlays=transport,population,pedestrian"));
   });
 
-  it("базовый слой можно переключить: карту красит выбранный слой", async () => {
+  it("основу карты переключить нельзя: карту всегда красит слой конкурентов", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("base-population"));
-
-    await waitFor(() =>
-      expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
-        expect.objectContaining({ base: "population" }),
-      ),
+    // Переключателя базового слоя в интерфейсе нет: смена основы меняла бы главный ответ приложения
+    expect(screen.queryByTestId("base-population")).toBeNull();
+    expect(screen.getByTestId("layer-base")).toBeTruthy();
+    expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+      expect.objectContaining({ base: "competitors:cafe" }),
     );
-    expect(window.location.search).toContain("base=population");
-    // У слоя населения нет вариантов: категория из ссылки уходит, иначе она вводила бы в заблуждение
-    expect(window.location.search).not.toContain("category=");
   });
 
   it("кнопка «Поделиться» копирует ссылку на текущий вид", async () => {

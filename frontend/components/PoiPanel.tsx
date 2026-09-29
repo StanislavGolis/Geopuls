@@ -5,6 +5,17 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, type PoiItem, type PoisMeta, fetchPois } from "@/lib/api";
 import { pluralObjects } from "@/lib/format";
+import { formatLayerValue, metricLabel } from "@/lib/layers";
+
+/** Значение дополнительного слоя в выбранной ячейке: числа из включённых пользователем слоёв. */
+export type CellMetricView = {
+  slug: string;
+  name: string;
+  unit: string | null;
+  metricKind: string;
+  /** Значение для этой ячейки; null — у слоя нет данных по ней (это не ноль). */
+  value: number | null;
+};
 
 export type PoiPanelProps = {
   city: string;
@@ -15,6 +26,8 @@ export type PoiPanelProps = {
   res: number;
   /** Названия категорий по slug: в интерфейсе показываем русские имена, а не slug'и API. */
   categoryNames: Record<string, string>;
+  /** Дополнительные слои, включённые пользователем: их значения по этой ячейке. */
+  metrics?: CellMetricView[];
   onClose: () => void;
 };
 
@@ -30,6 +43,7 @@ export default function PoiPanel({
   cell,
   res,
   categoryNames,
+  metrics = [],
   onClose,
 }: PoiPanelProps) {
   const [items, setItems] = useState<PoiItem[]>([]);
@@ -88,6 +102,22 @@ export default function PoiPanel({
       <p className="poi-panel__cell mono" title="Ячейка сетки Uber H3">
         {cell}
       </p>
+
+      {/* Дополнительные слои: числа по этой же ячейке. Так «что здесь ещё есть» видно рядом
+          с ответом про конкуренцию, а не отдельной картой, которую надо переключать */}
+      {metrics.length > 0 && (
+        <dl className="poi-panel__metrics" data-testid="cell-metrics">
+          {metrics.map((metric) => (
+            <div className="poi-panel__metric" key={metric.slug}>
+              <dt className="poi-panel__metric-name">{metric.name}</dt>
+              <dd className="poi-panel__metric-value">
+                {formatLayerValue(metric.value, metric.unit)}
+                <span className="poi-panel__metric-kind">{metricLabel(metric.metricKind)}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {status === "loading" && <p className="poi-panel__note">Загружаем объекты…</p>}
 

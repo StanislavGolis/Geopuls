@@ -8,7 +8,7 @@ import LayerPanel from "@/components/LayerPanel";
 import Legend from "@/components/Legend";
 import MapSkeleton from "@/components/MapSkeleton";
 import MapView, { type MapViewHandle } from "@/components/MapView";
-import PoiPanel from "@/components/PoiPanel";
+import PoiPanel, { type CellMetricView } from "@/components/PoiPanel";
 import {
   ApiError,
   type CategoryMeta,
@@ -34,14 +34,11 @@ import {
 import { formatDataVersion } from "@/lib/format";
 import { resolutionForZoom, resolutionOfCell } from "@/lib/heat";
 import {
-  MAX_OVERLAYS,
   baseColumn,
   isPartiallyCovered,
   layerLegend,
-  overlayColumns,
   parseLayerList,
   resolveBaseLayer,
-  sameLayerRef,
   serializeLayerList,
   serializeLayerRef,
   type LayerRef,
@@ -77,8 +74,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [citySlug, setCitySlug] = useState<string | null>(initial.city);
   /** Базовый слой — тот, что красит карту; вариант внутри слоя — его категория. */
   const [baseRef, setBaseRef] = useState<LayerRef | null>(null);
-  /** Наложения: не больше двух (ADR 0013). Из ссылки берём сразу — карта должна открыться целиком. */
-  const [overlayRefs, setOverlayRefs] = useState<LayerRef[]>(() => parseLayerList(initial.overlays));
+  /**
+   * Дополнительные слои: их числа показываются в карточке выбранной ячейки.
+   *
+   * На карту они не рисуются — основа всегда одна (конкуренты), поэтому ограничение в два слоя больше
+   * не нужно: оно защищало читаемость заливки, которой на карте нет. Слои задают дополнительную
+   * информацию о том же гексе, а не вторую картинку поверх первой.
+   */
+  const [infoRefs, setInfoRefs] = useState<LayerRef[]>(() => parseLayerList(initial.overlays));
   const [res, setRes] = useState<8 | 9>(initial.res ?? DEFAULT_RES);
   const [grid, setGrid] = useState<LayerGrid | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -110,7 +113,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   /** Ключи слоёв для запросов и ссылок: строка стабильна и годится как зависимость эффекта. */
   const baseKey = baseRef ? serializeLayerRef(baseRef) : null;
-  const overlaysKey = serializeLayerList(overlayRefs);
+  const infoLayersKey = serializeLayerList(infoRefs);
 
   // Справочники: города, категории и реестр слоёв
   useEffect(() => {
@@ -159,14 +162,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     requestRef.current = controller;
 
     setStatus("loading");
-    const cacheKey = gridCacheKey(citySlug, baseKey, overlaysKey, res);
+    const cacheKey = gridCacheKey(citySlug, baseKey, infoLayersKey, res);
 
     (async () => {
       try {
         const response = await fetchLayerGrid({
           city: citySlug,
           base: baseKey,
-          overlays: overlaysKey || undefined,
+          overlays: infoLayersKey || undefined,
           res,
         });
         if (controller.signal.aborted) return;
@@ -198,7 +201,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     })();
 
     return () => controller.abort();
-  }, [citySlug, baseKey, overlaysKey, res, reloadToken]);
+  }, [citySlug, baseKey, infoLayersKey, res, reloadToken]);
 
   // Смена разрешения означает другую сетку: ячейку из прежней сетки больше не подсвечиваем
   useEffect(() => {
@@ -217,14 +220,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       // не знают, и не ломаются уже разошедшиеся ссылки (см. lib/urlState.ts)
       category: baseRef.category,
       base: serializeLayerRef(baseRef),
-      overlays: overlaysKey || null,
+      overlays: infoLayersKey || null,
       cell: selectedCell,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
-  }, [citySlug, baseRef, overlaysKey, selectedCell, res, view]);
+  }, [citySlug, baseRef, infoLayersKey, selectedCell, res, view]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
   const categoryNames = useMemo(
@@ -244,17 +247,31 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     [categories, categoryOptions],
   );
   const baseColumnData = useMemo(() => (grid ? baseColumn(grid) : null), [grid]);
-  const overlayColumnData = useMemo(() => (grid ? overlayColumns(grid) : []), [grid]);
-  const legendOverlays = useMemo(
-    () =>
-      overlayColumnData.map((column) => ({
-        slug: column.slug,
-        name: column.name,
-        color: column.color,
-        nonEmptyCount: column.non_empty_count,
-      })),
-    [overlayColumnData],
-  );
+  /**
+   * Значения включённых слоёв для выбранной ячейки — их показывает карточка объекта.
+   *
+   * Считаем по индексу ячейки в уже загруженной сетке: отдельного запроса не нужно, а «нет данных»
+   * (`null`) честно доезжает до интерфейса — ноль означал бы «здесь этого нет».
+   */
+  const cellMetrics = useMemo<CellMetricView[]>(() => {
+    if (!grid || !selectedCell) return [];
+    const index = grid.cells.h3.indexOf(selectedCell);
+    if (index < 0) return [];
+
+    return infoRefs.flatMap((ref) => {
+      const column = grid.layers.find((item) => item.slug === ref.slug);
+      if (!column) return [];
+      return [
+        {
+          slug: column.slug,
+          name: column.name,
+          unit: column.unit,
+          metricKind: column.metric_kind,
+          value: column.values[index] ?? null,
+        },
+      ];
+    });
+  }, [grid, selectedCell, infoRefs]);
   const exportContext = useMemo<ExportContext | null>(() => {
     if (!city || !grid) return null;
 
@@ -298,29 +315,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     setSelectedCell(null);
   }, []);
 
-  const selectBase = useCallback((ref: LayerRef) => {
-    setBaseRef((current) => (current && sameLayerRef(current, ref) ? current : ref));
-    setSelectedCell(null);
-  }, []);
-
   /**
-   * Включить, выключить или перенастроить наложение.
+   * Включить или выключить дополнительный слой.
    *
-   * Три случая в одной функции: включение, смена категории уже включённого наложения и выключение.
-   * Третье наложение не включаем — это правило ADR 0013, и панель объясняет его на месте.
+   * Ограничения на число слоёв здесь нет: они не рисуются на карте, а добавляют числа в карточку
+   * ячейки. Технический лимит запроса живёт на стороне API и говорит про размер ответа, а не про
+   * читаемость картинки.
    */
-  const toggleOverlay = useCallback((ref: LayerRef) => {
-    setOverlayRefs((current) => {
-      const existing = current.find((item) => item.slug === ref.slug);
-      if (!existing) {
-        if (current.length >= MAX_OVERLAYS) return current;
-        return [...current, ref];
-      }
-      if (existing.category !== ref.category) {
-        return current.map((item) => (item.slug === ref.slug ? ref : item));
-      }
-      return current.filter((item) => item.slug !== ref.slug);
-    });
+  const toggleInfoLayer = useCallback((ref: LayerRef) => {
+    setInfoRefs((current) =>
+      current.some((item) => item.slug === ref.slug)
+        ? current.filter((item) => item.slug !== ref.slug)
+        : [...current, ref],
+    );
     setSelectedCell(null);
   }, []);
 
@@ -493,19 +500,17 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         {baseLayer && (
           <LayerPanel
             layers={layers}
-            base={baseRef}
-            overlays={overlayRefs}
+            base={baseLayer}
+            active={infoRefs}
             grid={grid}
-            categoryNames={categoryNames}
-            onSelectBase={selectBase}
-            onToggleOverlay={toggleOverlay}
+            categoryName={baseCategory ? (categoryNames[baseCategory] ?? baseCategory) : null}
+            onToggle={toggleInfoLayer}
           />
         )}
 
         {baseLayer && (
           <Legend
             layer={baseColumnData ? layerLegend(baseColumnData) : null}
-            overlays={legendOverlays}
             res={res}
             thinDataThreshold={THIN_DATA_THRESHOLD}
             partialCoverage={
@@ -578,6 +583,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             // разрешения по зуму, и тогда запрос со «своим» res давал 404 (см. resolutionOfCell)
             res={resolutionOfCell(selectedCell) ?? res}
             categoryNames={categoryNames}
+            metrics={cellMetrics}
             onClose={() => setSelectedCell(null)}
           />
         )}

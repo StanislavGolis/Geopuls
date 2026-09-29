@@ -13,7 +13,6 @@ import {
   heatFillOpacityExpression,
   heatOutlineColorExpression,
   legendItems,
-  overlayOutlineColorExpression,
   rampIndexes,
   resolutionOfCell,
   resolutionForZoom,
@@ -138,16 +137,6 @@ describe("правила отрисовки ячеек", () => {
       EMPTY_CELL_STROKE,
       "rgba(255, 255, 255, 0.45)",
     ]);
-  });
-
-  it("наложение рисуется цветом слоя только там, где значение есть", () => {
-    const expression = overlayOutlineColorExpression("layer_population", "#334155") as unknown[];
-
-    expect(expression[0]).toBe("case");
-    // Ноль и null (нет данных) остаются прозрачными: вторым тепловым слоем карту не закрашиваем
-    expect(expression[1]).toEqual([">", ["get", "layer_population"], 0]);
-    expect(expression[2]).toBe("#334155");
-    expect(expression[3]).toBe("rgba(255, 255, 255, 0)");
   });
 });
 

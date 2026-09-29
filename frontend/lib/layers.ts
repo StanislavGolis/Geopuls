@@ -8,8 +8,8 @@
 
 import type { LayerGrid, LayerMeta, MapLayerColumn } from "@/lib/api";
 
-/** Сколько наложений разрешено поверх базового слоя (ADR 0013) — то же число проверяет API. */
-export const MAX_OVERLAYS = 2;
+/** Сколько слоёв можно запросить вместе с базовым: тот же предел проверяет API. */
+export const MAX_OVERLAYS = 6;
 
 export type LayerRef = { slug: string; category: string | null };
 

@@ -48,7 +48,9 @@ describe("ссылки на слой", () => {
       { slug: "transport", category: null },
     ]);
     expect(parseLayerList("population,population")).toHaveLength(1);
-    expect(parseLayerList("population,transport,pedestrian")).toHaveLength(MAX_OVERLAYS);
+    // Слои перечисляются все: они больше не мешают друг другу на карте
+    expect(parseLayerList("population,transport,pedestrian")).toHaveLength(3);
+    expect(parseLayerList("a,b,c,d,e,f,g")).toHaveLength(MAX_OVERLAYS);
     expect(parseLayerList(",,population,")).toEqual([{ slug: "population", category: null }]);
     expect(parseLayerList(null)).toEqual([]);
   });

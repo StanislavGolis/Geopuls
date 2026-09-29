@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from conftest import DB_TESTS_ENABLED, TEST_DATA_VERSION, prepare_test_city, resolve_test_database_url
+from geopuls.api.map import MAX_OVERLAYS
 from geopuls.config import get_settings
 from geopuls.db import create_engine, session_scope
 from geopuls.layers_catalog import LAYERS_BY_SLUG
@@ -197,19 +198,22 @@ def test_map_marks_cells_without_values_as_unknown(client: TestClient) -> None:
     assert len(overlay["values"]) == body["meta"]["cell_count"]
 
 
-def test_map_rejects_more_than_two_overlays(client: TestClient) -> None:
-    """Три наложения поверх заливки — нечитаемая карта: правило проверяет контракт, а не интерфейс."""
-    add_layer("transport")
-    add_layer("population")
-    add_layer("synthetic_pedestrian")
+def test_map_rejects_too_many_overlays(client: TestClient) -> None:
+    """Лимит слоёв в одном запросе технический: он держит размер ответа разумным."""
+    for index in range(MAX_OVERLAYS + 1):
+        add_layer(f"synthetic_{index}")
 
     response = client.get(
         "/api/v1/map",
-        params={"city": "tomsk", "base": BASE, "overlays": "transport,population,synthetic_pedestrian"},
+        params={
+            "city": "tomsk",
+            "base": BASE,
+            "overlays": ",".join(f"synthetic_{index}" for index in range(MAX_OVERLAYS + 1)),
+        },
     )
 
     assert response.status_code == 400
-    assert "больше 2" in response.json()["detail"]
+    assert f"больше {MAX_OVERLAYS}" in response.json()["detail"]
 
 
 def test_map_rejects_duplicate_overlay(client: TestClient) -> None:
