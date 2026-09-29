@@ -171,6 +171,14 @@ def prepare_test_city(tmp_path: Path, *, data_version: str = TEST_DATA_VERSION) 
                 await deactivate_missing(session, source="geofabrik", watermark=watermark)
                 await finish_import_run(session, run_id, status="ok", osm_timestamp=None, pois_upserted=len(records))
 
+            # Версия данных фиксируется ДО агрегации: агрегатор подписывает метрики текущей версией,
+            # а API показывает тот снимок, который действительно нарисован на карте
+            async with session_scope(engine) as session:
+                await session.execute(
+                    text("INSERT INTO data_versions (version) VALUES (:version)"),
+                    {"version": data_version},
+                )
+
             async with session_scope(engine) as session:
                 agg_run_id, _started_at = await start_import_run(session, source="aggregate", source_url=None)
 
@@ -182,13 +190,6 @@ def prepare_test_city(tmp_path: Path, *, data_version: str = TEST_DATA_VERSION) 
                     status="ok",
                     pois_upserted=result.poi_in_city,
                     cells_written=sum(result.cells_total.values()),
-                )
-
-            # Версия данных фиксируется в конце: она участвует в ETag и meta ответов
-            async with session_scope(engine) as session:
-                await session.execute(
-                    text("INSERT INTO data_versions (version) VALUES (:version)"),
-                    {"version": data_version},
                 )
         finally:
             await engine.dispose()

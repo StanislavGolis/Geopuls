@@ -106,3 +106,91 @@ class ProblemOut(BaseModel):
     status: int
     detail: str
     instance: str
+
+
+class LayerSourceOut(BaseModel):
+    """Источник данных слоя: лицензия и атрибуция нужны интерфейсу и экспорту (ADR 0013)."""
+
+    slug: str
+    title: str
+    license: str | None = None
+    license_url: str | None = None
+    attribution_text: str | None = None
+    citation: str | None = None
+    source_url: str | None = None
+    data_version: str | None = None
+
+
+class LayerOut(BaseModel):
+    """Слой карты: чем измеряется, в каких единицах и может ли красить карту."""
+
+    slug: str
+    name: str
+    kind: str
+    metric_kind: str
+    unit: str | None = None
+    scale: str
+    color: str
+    can_be_base: bool
+    categories: list[str] = Field(default_factory=list)
+    source: LayerSourceOut | None = None
+
+
+class LayersResponse(BaseModel):
+    layers: list[LayerOut]
+    data_version: str | None = None
+
+
+class LayerCellsMeta(BaseModel):
+    """Метаданные слоя: единица измерения, шкала легенды и источники видимых данных."""
+
+    city: str
+    layer: str
+    category: str | None = None
+    res: int
+    metric_kind: str
+    unit: str | None = None
+    data_version: str | None = None
+    updated_at: datetime | None = None
+    cell_count: int
+    non_empty_count: int
+    total_value: float
+    max_value: float
+    breaks: list[float]
+    sources: list[LayerSourceOut] = Field(default_factory=list)
+    bbox_filter: str | None = None
+
+
+class LayerCellsResponse(BaseModel):
+    """GeoJSON слоя: значение метрики в ``properties.value``, тип — в ``properties.value_kind``."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[dict[str, Any]]
+    meta: LayerCellsMeta
+
+
+class CellMetricOut(BaseModel):
+    """Одно значение в профиле ячейки: слой, вариант (если есть) и дополнительные показатели."""
+
+    layer: str
+    layer_name: str
+    category: str | None = None
+    metric_kind: str
+    unit: str | None = None
+    value: float
+    extras: dict[str, Any] | None = None
+
+
+class CellProfileMeta(BaseModel):
+    city: str
+    cell: str
+    res: int
+    data_version: str | None = None
+    updated_at: datetime | None = None
+
+
+class CellProfileResponse(BaseModel):
+    """Все значения ячейки по слоям — основа для объяснения «здесь жильё и остановка, кафе нет»."""
+
+    metrics: list[CellMetricOut]
+    meta: CellProfileMeta
