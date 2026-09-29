@@ -23,6 +23,10 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# `PROD_URL` может прийти со строкой запроса (его использует prod-smoke для карты): для запросов к API
+# берём только origin, иначе вместо JSON прилетит HTML страницы
+$BaseUrl = ([System.Uri]$BaseUrl).GetLeftPart([System.UriPartial]::Authority)
+
 $script:failures = @()
 
 function Get-Api {

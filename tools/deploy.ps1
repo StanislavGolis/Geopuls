@@ -35,6 +35,11 @@ $keyPath = if ($env:VPS_KEY) { $env:VPS_KEY } else { Join-Path $HOME '.ssh\id_ed
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# `PROD_URL` может прийти со строкой запроса — его же использует prod-smoke для карты. Для запросов к
+# API нужен только origin: иначе `/version` вернёт HTML страницы, и опрос будет видеть «пустой коммит»
+# (ровно эта ловушка стоила 15 минут ожидания на выкате Этапа 9)
+$BaseUrl = ([System.Uri]$BaseUrl).GetLeftPart([System.UriPartial]::Authority)
+
 if (-not (Test-Path $keyPath) -and -not $env:VPS_PASSWORD) {
     Write-Host 'Нужен доступ к серверу: положите ключ в ~/.ssh/id_ed25519' -ForegroundColor Red
     Write-Host '(или задайте $env:VPS_KEY) — на проде вход по паролю выключен.' -ForegroundColor Red
@@ -75,6 +80,13 @@ try {
         try {
             $version = Invoke-RestMethod -Uri "$BaseUrl/version" -TimeoutSec 20
             if ($version.git_sha -eq $sha) { $deployed = $true; break }
+            if (-not $version.git_sha) {
+                # Ответ не похож на `/version` (например, HTML страницы) — это ошибка запроса, а не
+                # «сервер ещё на старом коммите»: показываем как провал, чтобы не ждать 15 минут молча
+                $lastError = "ответ без git_sha — проверьте адрес: $BaseUrl"
+                Write-Host '.' -NoNewline -ForegroundColor DarkGray
+                continue
+            }
             $lastSeen = $version.git_sha
             Write-Host (".[{0}]" -f $lastSeen) -NoNewline -ForegroundColor DarkGray
         }
