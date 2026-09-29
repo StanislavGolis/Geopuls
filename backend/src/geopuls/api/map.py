@@ -222,9 +222,12 @@ async def get_map(
         raise ProblemException(400, f"Слой {base_slug} не может красить карту: он рисуется только наложением")
 
     categories_by_layer = await load_categories_by_layer(session)
-    await require_layer_variant(session, layers[base_slug], base_category, categories_by_layer)
-    for slug, category in overlay_refs:
-        await require_layer_variant(session, layers[slug], category, categories_by_layer)
+    base_category = await require_layer_variant(session, layers[base_slug], base_category, categories_by_layer)
+    # Вариант слоя с одним вариантом подставляется сам: тогда и фильтр, и подписи знают категорию
+    overlay_refs = [
+        (slug, await require_layer_variant(session, layers[slug], category, categories_by_layer))
+        for slug, category in overlay_refs
+    ]
 
     min_lon = min_lat = max_lon = max_lat = 0.0
     use_bbox = False

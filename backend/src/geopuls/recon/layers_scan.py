@@ -52,6 +52,8 @@ class LayerGroup:
 
 
 GROUPS: tuple[LayerGroup, ...] = (
+    # ВАЖНО: этот список обязан совпадать с `geopuls.layers_catalog.LAYERS` (что мерили = что показываем).
+    # Совпадение проверяет тест `tests/test_layers_catalog.py`: разойтись молча они не могут.
     LayerGroup(
         "transport_stops",
         "Остановки и станции транспорта",

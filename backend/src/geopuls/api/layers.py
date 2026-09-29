@@ -148,15 +148,16 @@ async def require_layer_variant(
     layer: dict[str, Any],
     category: str | None,
     categories_by_layer: dict[str, list[str]],
-) -> None:
-    """Проверить, что вариант слоя указан правильно и существует.
+) -> str | None:
+    """Проверить вариант слоя и вернуть тот, который реально используется.
 
-    Правило одно для всех эндпоинтов слоёв: слой с категориями требует категорию (иначе на одну
-    ячейку пришлось бы несколько значений), слой без категорий её запрещает.
+    Правила: слой с несколькими категориями требует категорию (иначе на одну ячейку пришлось бы
+    несколько значений), слой без категорий её запрещает. Слой с единственной категорией категорию
+    не требует: уточнять нечего — вариант один, и это не должно заставлять клиента его знать.
     """
     slug = str(layer["slug"])
     layer_categories = categories_by_layer.get(slug, [])
-    if layer_categories and category is None:
+    if len(layer_categories) > 1 and category is None:
         raise ProblemException(
             400, f"Слой {slug} состоит из категорий — укажите category ({', '.join(layer_categories)})"
         )
@@ -164,6 +165,8 @@ async def require_layer_variant(
         if not layer_categories:
             raise ProblemException(400, f"Слой {slug} не делится на категории")
         await require_layer_category(session, slug, category)
+        return category
+    return layer_categories[0] if layer_categories else None
 
 
 async def require_layer_category(session: AsyncSession, layer_slug: str, category: str) -> str:
@@ -250,7 +253,8 @@ async def get_layer_cells(
     """
     await require_city(session, city)
     layer = await require_layer(session, slug)
-    await require_layer_variant(session, layer, category, await load_categories_by_layer(session))
+    # Вариант слоя: у слоя с одним вариантом он подставляется сам (см. require_layer_variant)
+    category = await require_layer_variant(session, layer, category, await load_categories_by_layer(session))
 
     min_lon = min_lat = max_lon = max_lat = 0.0
     use_bbox = False

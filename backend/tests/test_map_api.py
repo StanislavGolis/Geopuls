@@ -17,6 +17,7 @@ from sqlalchemy import text
 from conftest import DB_TESTS_ENABLED, TEST_DATA_VERSION, prepare_test_city, resolve_test_database_url
 from geopuls.config import get_settings
 from geopuls.db import create_engine, session_scope
+from geopuls.layers_catalog import LAYERS_BY_SLUG
 from geopuls.main import create_app
 
 pytestmark = pytest.mark.skipif(not DB_TESTS_ENABLED, reason="нужна тестовая БД (GEOPULS_CI_DB=1)")
@@ -48,6 +49,9 @@ def add_layer(
     Слои без метрик нужны отдельным случаем: колонка, которую ещё не собирали, должна приходить
     пустой (``null``), а не выдуманными нулями.
     """
+    assert slug not in LAYERS_BY_SLUG, (
+        f"{slug} — реальный слой из каталога: синтетическому слою нужен свой slug, иначе вставка конфликтует с сидом"
+    )
     url = resolve_test_database_url()
     assert url is not None
 
@@ -197,11 +201,11 @@ def test_map_rejects_more_than_two_overlays(client: TestClient) -> None:
     """Три наложения поверх заливки — нечитаемая карта: правило проверяет контракт, а не интерфейс."""
     add_layer("transport")
     add_layer("population")
-    add_layer("pedestrian")
+    add_layer("synthetic_pedestrian")
 
     response = client.get(
         "/api/v1/map",
-        params={"city": "tomsk", "base": BASE, "overlays": "transport,population,pedestrian"},
+        params={"city": "tomsk", "base": BASE, "overlays": "transport,population,synthetic_pedestrian"},
     )
 
     assert response.status_code == 400

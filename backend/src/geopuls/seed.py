@@ -29,6 +29,7 @@ from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
 from geopuls.importers.boundary import CityBoundary, load_boundary
+from geopuls.layers_catalog import LAYERS
 from geopuls.models import Category, Dataset, Layer
 
 #: Слой, в который попадают сегодняшние категории POI (ADR 0013).
@@ -36,8 +37,12 @@ COMPETITORS_LAYER = "competitors"
 
 
 def build_category_rows() -> list[dict[str, Any]]:
-    """Строки для вставки в `categories` из утверждённого маппинга (см. docs/recon/)."""
-    return [
+    """Категории: восемь категорий конкурентов и по одной на каждый слой из каталога.
+
+    Категория — это вариант внутри слоя, а её `osm_tags` — данные, а не код: новый слой из OSM
+    добавляется сидом (ADR 0013). Принадлежность категории к слою проставляет `seed_categories`.
+    """
+    rows: list[dict[str, Any]] = [
         {
             "slug": category.slug,
             "name_ru": category.name_ru,
@@ -47,6 +52,29 @@ def build_category_rows() -> list[dict[str, Any]]:
         }
         for index, category in enumerate(MVP_CATEGORIES)
     ]
+
+    offset = len(rows)
+    for layer in LAYERS:
+        for index, category in enumerate(layer.categories):
+            rows.append(
+                {
+                    "slug": category.slug,
+                    "name_ru": category.name_ru,
+                    "osm_tags": category.as_osm_tags(),
+                    "color": layer.color,
+                    "sort_order": offset + index,
+                }
+            )
+        offset += len(layer.categories)
+    return rows
+
+
+def category_slugs_by_layer() -> dict[str, list[str]]:
+    """Какие категории принадлежат какому слою: по этому списку проставляется `categories.layer_id`."""
+    mapping: dict[str, list[str]] = {COMPETITORS_LAYER: [category.slug for category in MVP_CATEGORIES]}
+    for layer in LAYERS:
+        mapping[layer.slug] = [category.slug for category in layer.categories]
+    return mapping
 
 
 def build_city_params(
@@ -85,13 +113,14 @@ def build_dataset_rows() -> list[dict[str, Any]]:
     ]
 
 
-def build_layer_rows(dataset_ids: dict[str, int]) -> list[dict[str, Any]]:
-    """Слои карты: на Этапе 8 реальный слой один — сегодняшние категории POI.
+def build_layer_rows(dataset_ids: dict[str, Any]) -> list[dict[str, Any]]:
+    """Слои карты: «Конкуренты» и слои OSM из каталога (Этапы 8–9).
 
-    Остальные слои (население, транспорт, жильё, работа, якоря, пешеходные пути) добавляются
-    на Этапах 9–10, вместе с их источниками: слой без данных в реестре только путает.
+    Состав слоёв и их метрики живут в `geopuls.layers_catalog` — оттуда же их берёт агрегатор.
+    Здесь только приведение к строкам таблицы `layers`.
     """
-    return [
+    osm_dataset = dataset_ids.get("osm")
+    rows: list[dict[str, Any]] = [
         {
             "slug": COMPETITORS_LAYER,
             "name_ru": "Конкуренты (объекты по категориям)",
@@ -101,10 +130,26 @@ def build_layer_rows(dataset_ids: dict[str, int]) -> list[dict[str, Any]]:
             "scale": "quantile",
             "color": "#1f6fb2",
             "can_be_base": True,
-            "dataset_id": dataset_ids.get("osm"),
+            "dataset_id": osm_dataset,
             "sort_order": 10,
         }
     ]
+    rows.extend(
+        {
+            "slug": layer.slug,
+            "name_ru": layer.name_ru,
+            "kind": "osm",
+            "metric_kind": layer.metric_kind,
+            "unit": layer.unit,
+            "scale": layer.scale,
+            "color": layer.color,
+            "can_be_base": layer.can_be_base,
+            "dataset_id": osm_dataset,
+            "sort_order": layer.sort_order,
+        }
+        for layer in LAYERS
+    )
+    return rows
 
 
 async def seed_datasets(session: AsyncSession) -> dict[str, int]:
@@ -156,8 +201,8 @@ async def seed_categories(session: AsyncSession) -> list[str]:
     """Записать справочники: источники, слои и категории MVP.
 
     Порядок обязателен: категория ссылается на слой, слой — на источник. Повторный запуск
-    безопасен (вставка или обновление по `slug`), а категории без слоя попадают в слой
-    «Конкуренты» — так новые категории не остаются висеть вне слоёв.
+    безопасен (вставка или обновление по `slug`), а принадлежность категории к слою проставляется
+    по каталогу: категория без слоя не должна «повисать» вне слоёв.
     """
     dataset_ids = await seed_datasets(session)
     await seed_layers(session, dataset_ids)
@@ -175,15 +220,14 @@ async def seed_categories(session: AsyncSession) -> list[str]:
         },
     )
     await session.execute(statement)
-    await session.execute(
-        text(
-            """
-            UPDATE categories SET layer_id = (SELECT id FROM layers WHERE slug = :layer)
-            WHERE layer_id IS NULL
-            """
-        ),
-        {"layer": COMPETITORS_LAYER},
-    )
+    for layer_slug, slugs in category_slugs_by_layer().items():
+        await session.execute(
+            text(
+                "UPDATE categories SET layer_id = (SELECT id FROM layers WHERE slug = :layer) "
+                "WHERE slug = ANY(CAST(:slugs AS text[]))"
+            ),
+            {"layer": layer_slug, "slugs": slugs},
+        )
     return [row["slug"] for row in rows]
 
 

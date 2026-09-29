@@ -7,6 +7,7 @@ from pathlib import Path
 
 from geopuls.categories import MVP_CATEGORIES
 from geopuls.importers.boundary import load_boundary
+from geopuls.layers_catalog import LAYERS_BY_SLUG
 from geopuls.models.layers import METRIC_KINDS
 from geopuls.seed import (
     COMPETITORS_LAYER,
@@ -14,18 +15,31 @@ from geopuls.seed import (
     build_city_params,
     build_dataset_rows,
     build_layer_rows,
+    category_slugs_by_layer,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tomsk-boundary.json"
 
 
-def test_category_rows_match_mvp_categories() -> None:
+def test_category_rows_cover_mvp_and_layer_catalog() -> None:
+    """Категории конкурентов идут первыми, дальше — по одной на каждый слой каталога (Этап 9)."""
     rows = build_category_rows()
+    slugs = [row["slug"] for row in rows]
 
-    assert [row["slug"] for row in rows] == [category.slug for category in MVP_CATEGORIES]
+    assert slugs[: len(MVP_CATEGORIES)] == [category.slug for category in MVP_CATEGORIES]
+    assert set(slugs) == {category.slug for category in MVP_CATEGORIES} | set(LAYERS_BY_SLUG)
     assert [row["sort_order"] for row in rows] == list(range(len(rows)))
-    assert len({row["slug"] for row in rows}) == len(rows)
+    assert len(set(slugs)) == len(rows)
     assert all(row["name_ru"] and row["color"] and row["osm_tags"] for row in rows)
+
+
+def test_category_slugs_by_layer_matches_rows() -> None:
+    """Каждая категория обязана получить слой: иначе её метрики некуда положить."""
+    mapping = category_slugs_by_layer()
+
+    assert mapping[COMPETITORS_LAYER] == [category.slug for category in MVP_CATEGORIES]
+    assert {slug for slugs in mapping.values() for slug in slugs} == {row["slug"] for row in build_category_rows()}
+    assert set(mapping) == {COMPETITORS_LAYER, *LAYERS_BY_SLUG}
 
 
 def test_dataset_rows_carry_license_and_attribution() -> None:
