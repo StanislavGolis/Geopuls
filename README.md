@@ -13,7 +13,8 @@
 ## Статус
 
 MVP собран и развёрнут на проде: **https://201.34.158.13.sslip.io** (HTTPS, Let's Encrypt; мониторинг,
-бэкапы и расписание обновления данных — в cron). См. `docs/deploy.md` и `docs/acceptance/`.
+бэкапы и расписание обновления данных — в cron). Релиз — тег **`v0.1.0-mvp`**. См. `docs/deploy.md`
+и `docs/acceptance/`.
 
 - [x] Каркас репозитория, Docker Compose, CI, `.gitignore` / `.gitattributes`
 - [x] ТЗ v0.2 (`docs/tz.md`) с исправленными источником данных, метрикой и подложкой карты
