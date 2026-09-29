@@ -183,9 +183,7 @@ def test_map_marks_cells_without_values_as_unknown(client: TestClient) -> None:
     """Слой без собранных метрик отдаётся пустой колонкой: `null` честнее выдуманного нуля."""
     add_layer("population", with_metrics=False)
 
-    body = client.get(
-        "/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "population"}
-    ).json()
+    body = client.get("/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "population"}).json()
     overlay = body["layers"][1]
 
     assert overlay["role"] == "overlay"
@@ -213,18 +211,14 @@ def test_map_rejects_more_than_two_overlays(client: TestClient) -> None:
 def test_map_rejects_duplicate_overlay(client: TestClient) -> None:
     add_layer("transport")
 
-    response = client.get(
-        "/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "transport,transport"}
-    )
+    response = client.get("/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "transport,transport"})
 
     assert response.status_code == 400
     assert "дважды" in response.json()["detail"]
 
 
 def test_map_rejects_base_layer_repeated_as_overlay(client: TestClient) -> None:
-    response = client.get(
-        "/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "competitors:bar"}
-    )
+    response = client.get("/api/v1/map", params={"city": "tomsk", "base": BASE, "overlays": "competitors:bar"})
 
     assert response.status_code == 400
     assert "наложение" in response.json()["detail"]
@@ -256,9 +250,7 @@ def test_map_400_for_broken_layer_reference(client: TestClient) -> None:
 def test_map_404_for_unknown_city_layer_and_category(client: TestClient) -> None:
     assert client.get("/api/v1/map", params={"city": "nowhere", "base": BASE}).status_code == 404
     assert client.get("/api/v1/map", params={"city": "tomsk", "base": "nowhere"}).status_code == 404
-    assert (
-        client.get("/api/v1/map", params={"city": "tomsk", "base": "competitors:nope"}).status_code == 404
-    )
+    assert client.get("/api/v1/map", params={"city": "tomsk", "base": "competitors:nope"}).status_code == 404
 
 
 def test_map_requires_base_layer(client: TestClient) -> None:
