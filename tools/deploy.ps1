@@ -8,6 +8,10 @@
 # Ожидание идёт по `/version`: если на сервер уехал не тот архив (например, собранный до коммита),
 # проверка этого не пропустит — именно на таких граблях мы стояли.
 #
+# Адрес проверки задаётся доменом (`-BaseUrl`), а не IP: сертификат выписан на `*.sslip.io`, и запрос к
+# голому IP падает на TLS — ожидание в этом случае молча крутится до таймаута. Поэтому ошибки запроса и
+# увиденный коммит не глушатся, а печатаются при неудаче.
+#
 # Пароль передаётся дочернему процессу tools/vps.py через окружение: скрипт его не печатает и никуда
 # не сохраняет.
 [CmdletBinding()]
@@ -15,6 +19,7 @@ param(
     [switch]$AllowDirty,
     [switch]$SkipCheck,
     [int]$TimeoutMinutes = 15,
+    [string]$BaseUrl = $(if ($env:PROD_URL) { $env:PROD_URL } else { 'https://201.34.158.13.sslip.io' }),
     [string]$VpsHost = $(if ($env:VPS_HOST) { $env:VPS_HOST } else { '201.34.158.13' })
 )
 
@@ -56,19 +61,28 @@ try {
     Write-Host ("3/3 Ожидание /version = {0}" -f $sha) -ForegroundColor Cyan
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $deployed = $false
+    $lastSeen = ''
+    $lastError = ''
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 15
         try {
-            $version = Invoke-RestMethod -Uri "https://$VpsHost/version" -TimeoutSec 20
+            $version = Invoke-RestMethod -Uri "$BaseUrl/version" -TimeoutSec 20
             if ($version.git_sha -eq $sha) { $deployed = $true; break }
-            Write-Host '      .' -NoNewline -ForegroundColor DarkGray
+            $lastSeen = $version.git_sha
+            Write-Host (".[{0}]" -f $lastSeen) -NoNewline -ForegroundColor DarkGray
         }
-        catch { Write-Host '      .' -NoNewline -ForegroundColor DarkGray }
+        catch {
+            $lastError = $_.Exception.Message
+            Write-Host '.' -NoNewline -ForegroundColor DarkGray
+        }
     }
     Write-Host ''
 
     if (-not $deployed) {
-        Write-Host ('Сервер не переключился на {0} за {1} минут. Хвост /tmp/update.log:' -f $sha, $TimeoutMinutes) -ForegroundColor Red
+        Write-Host ('Сервер не переключился на {0} за {1} минут.' -f $sha, $TimeoutMinutes) -ForegroundColor Red
+        if ($lastSeen) { Write-Host ("      на /version пока {0}" -f $lastSeen) -ForegroundColor Red }
+        if ($lastError) { Write-Host ("      ошибка запроса: {0}" -f $lastError) -ForegroundColor Red }
+        Write-Host 'Хвост /tmp/update.log:' -ForegroundColor Red
         & uv run --with paramiko python $vps run "tail -20 /tmp/update.log" | Write-Host -ForegroundColor DarkGray
         exit 1
     }
@@ -79,7 +93,7 @@ finally {
 }
 
 if (-not $SkipCheck) {
-    & (Join-Path $PSScriptRoot 'prod-check.ps1') -ExpectedSha $sha
+    & (Join-Path $PSScriptRoot 'prod-check.ps1') -ExpectedSha $sha -BaseUrl $BaseUrl
     exit $LASTEXITCODE
 }
 Write-Host 'Выкат выполнен, проверка пропущена (-SkipCheck).' -ForegroundColor Yellow

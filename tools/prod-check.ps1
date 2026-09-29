@@ -8,7 +8,7 @@
 # а браузерная проверка складывает свой отчёт в data/processed/prod-smoke.json.
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = 'https://201.34.158.13.sslip.io',
+    [string]$BaseUrl = $(if ($env:PROD_URL) { $env:PROD_URL } else { 'https://201.34.158.13.sslip.io' }),
     [switch]$SkipBrowser,
     [string]$ExpectedSha = '',
     [string]$City = 'tomsk',
