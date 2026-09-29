@@ -17,8 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from conftest import tomsk_city_params
-from geopuls.categories import MVP_CATEGORIES
 from geopuls.db import session_scope
+from geopuls.layers_catalog import ALL_CATEGORIES
 from geopuls.seed import seed_categories, seed_city
 
 DB_TESTS_ENABLED = os.getenv("GEOPULS_CI_DB") == "1"
@@ -41,7 +41,9 @@ async def test_schema_present(clean_engine: AsyncEngine) -> None:
 async def test_seed_categories_is_idempotent(clean_engine: AsyncEngine) -> None:
     async with session_scope(clean_engine) as session:
         slugs = await seed_categories(session)
-    assert len(slugs) == len(MVP_CATEGORIES)
+    # Сид записывает категории всех слоёв, а не только конкурентов: иначе слои Этапа 9 останутся без данных
+    expected = {category.slug for category in ALL_CATEGORIES}
+    assert len(slugs) == len(expected)
 
     # Повторный запуск не создаёт дубликатов, но обновляет данные
     async with session_scope(clean_engine) as session:
@@ -58,7 +60,7 @@ async def test_seed_categories_is_idempotent(clean_engine: AsyncEngine) -> None:
             )
         ).scalar_one()
 
-    assert count == len(MVP_CATEGORIES)
+    assert count == len(expected)
     assert fast_food == 1
 
 

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from conftest import DB_TESTS_ENABLED, TEST_DATA_VERSION, prepare_test_city, resolve_test_database_url
 from geopuls.config import get_settings
+from geopuls.layers_catalog import ALL_CATEGORIES
 from geopuls.main import create_app
 
 pytestmark = pytest.mark.skipif(not DB_TESTS_ENABLED, reason="нужна тестовая БД (GEOPULS_CI_DB=1)")
@@ -52,7 +53,8 @@ def test_meta_categories_counts_pois(client: TestClient) -> None:
     assert response.status_code == 200
     categories = {item["slug"]: item for item in response.json()}
 
-    assert len(categories) == 8
+    # Эндпоинт отдаёт категории всех слоёв; видимые оставляет интерфейс (чипы строятся по базовому слою)
+    assert len(categories) == len({category.slug for category in ALL_CATEGORIES})
     assert categories["cafe"]["poi_count"] == 1
     assert categories["bar"]["poi_count"] == 0
     assert categories["cafe"]["name"] == "Кофейни и кафе"
