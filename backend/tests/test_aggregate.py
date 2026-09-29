@@ -232,13 +232,17 @@ async def test_aggregate_writes_metrics_consistent_with_stats(clean_engine: Asyn
                 await session.execute(
                     text(
                         "SELECT "
-                        "(SELECT count(*) FROM cell_metrics) AS metrics, "
+                        "(SELECT count(*) FROM cell_metrics) AS total, "
+                        "(SELECT count(*) FROM cell_metrics cm JOIN layers l ON l.id = cm.layer_id "
+                        " WHERE l.slug = 'competitors') AS metrics, "
                         "(SELECT count(*) FROM cell_stats) AS stats, "
                         "(SELECT count(*) FROM cell_metrics cm JOIN cell_stats cs "
                         "   ON cs.city_id = cm.city_id AND cs.resolution = cm.resolution "
                         "   AND cs.h3_index = cm.h3_index AND cs.category_id = cm.category_id "
-                        " WHERE abs(cm.value - cs.density) < 0.001) AS matched, "
+                        " JOIN layers l ON l.id = cm.layer_id "
+                        " WHERE l.slug = 'competitors' AND abs(cm.value - cs.density) < 0.001) AS matched, "
                         "(SELECT count(DISTINCT data_version) FROM cell_metrics) AS versions, "
+                        "(SELECT count(DISTINCT layer_id) FROM cell_metrics) AS layers, "
                         "(SELECT count(*) FROM cell_metrics WHERE extras->>'count' = '0') AS empty_count, "
                         "(SELECT extras->>'count' FROM cell_metrics LIMIT 1) AS sample"
                     )
@@ -248,12 +252,14 @@ async def test_aggregate_writes_metrics_consistent_with_stats(clean_engine: Asyn
             .one()
         )
 
+    # cell_stats отвечает только за слой конкурентов, поэтому сверяем с ним срез одного слоя
     assert summary["metrics"] == summary["stats"] > 0
     assert summary["matched"] == summary["metrics"], "значения метрик должны совпадать со статистикой"
     assert summary["versions"] == 1
     assert summary["empty_count"] > 0, "пустые ячейки обязаны попадать в метрики"
     assert summary["sample"] is not None, "extras должен содержать счётчик объектов"
-    assert result.metrics_written == summary["metrics"]
+    assert summary["layers"] >= 2, "метрики пишутся по всем слоям каталога, а не только по конкурентам"
+    assert result.metrics_written == summary["total"]
 
 
 async def test_aggregate_keeps_snapshots_by_data_version(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -306,6 +312,7 @@ async def test_aggregate_city_builds_grid_and_stats(clean_engine: AsyncEngine, t
                     text(
                         "SELECT (SELECT count(*) FROM city_cells WHERE resolution = 9) AS cells, "
                         "(SELECT count(*) FROM cell_stats WHERE resolution = 9) AS stats, "
+                        "(SELECT count(*) FROM categories WHERE is_active) AS categories, "
                         "(SELECT count(*) FROM cell_stats WHERE resolution = 9 AND poi_count = 0) AS empty, "
                         "(SELECT count(*) FROM cell_stats WHERE resolution = 9 AND poi_count > 0) AS filled, "
                         "(SELECT max(density) FROM cell_stats) AS max_density"
@@ -331,7 +338,9 @@ async def test_aggregate_city_builds_grid_and_stats(clean_engine: AsyncEngine, t
         )
 
     assert summary["cells"] == result.cells_total[9]
-    assert summary["stats"] == result.cells_total[9] * 8, "статистика пишется для всех категорий"
+    # Статистика пишется для всех активных категорий: их число выросло после Этапа 9 (слои OSM)
+    assert summary["stats"] == result.cells_total[9] * summary["categories"]
+    assert summary["categories"] > 8, "категории слоёв Этапа 9 должны быть в справочнике"
     assert summary["filled"] == 3
     assert summary["empty"] == summary["stats"] - summary["filled"]
     assert summary["max_density"] > 0
@@ -356,7 +365,8 @@ async def test_aggregate_is_idempotent(clean_engine: AsyncEngine, tmp_path) -> N
                 await session.execute(
                     text(
                         "SELECT (SELECT count(*) FROM city_cells WHERE resolution = 9) AS cells, "
-                        "(SELECT count(*) FROM cell_stats WHERE resolution = 9) AS stats"
+                        "(SELECT count(*) FROM cell_stats WHERE resolution = 9) AS stats, "
+                        "(SELECT count(*) FROM categories WHERE is_active) AS categories"
                     )
                 )
             )
@@ -365,7 +375,7 @@ async def test_aggregate_is_idempotent(clean_engine: AsyncEngine, tmp_path) -> N
         )
 
     assert counts["cells"] == first.cells_total[9], "повторная агрегация не должна дублировать ячейки"
-    assert counts["stats"] == first.cells_total[9] * 8
+    assert counts["stats"] == first.cells_total[9] * counts["categories"]
 
 
 async def test_aggregate_dry_run_writes_nothing(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]

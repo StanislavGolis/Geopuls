@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 #: Ключи OSM, по которым мы смотрим адрес объекта.
 ADDRESS_STREET = "addr:street"
@@ -130,7 +131,19 @@ MVP_CATEGORIES: tuple[Category, ...] = (
 )
 
 
-def match_categories(tags: Mapping[str, str], categories: Iterable[Category] = MVP_CATEGORIES) -> tuple[str, ...]:
+class CategoryLike(Protocol):
+    """Что импортёру нужно от категории: slug для записи и правило для проверки тегов.
+
+    Протокол, а не базовый класс: категории MVP (`Category`) и варианты слоёв из каталога
+    (`geopuls.layers_catalog.LayerCategoryDef`) — разные типы, но импортёр и сид работают с обоими.
+    """
+
+    slug: str
+
+    def matches(self, tags: Mapping[str, str]) -> bool: ...
+
+
+def match_categories(tags: Mapping[str, str], categories: Iterable[CategoryLike] = MVP_CATEGORIES) -> tuple[str, ...]:
     """Вернуть slug'и всех категорий, под которые подходит объект (может быть несколько)."""
     return tuple(category.slug for category in categories if category.matches(tags))
 

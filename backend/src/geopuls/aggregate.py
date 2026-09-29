@@ -23,9 +23,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import statistics
 import time
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,6 +40,7 @@ from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
 from geopuls.importers.poi import finish_import_run, load_category_ids, start_import_run
+from geopuls.layers_catalog import LAYERS, LayerDef
 from geopuls.models import CellMetric, CellStat, CityCell
 from geopuls.seed import COMPETITORS_LAYER
 
@@ -46,12 +48,20 @@ from geopuls.seed import COMPETITORS_LAYER
 DEFAULT_RESOLUTIONS = (9, 8)
 #: Сколько классов (кроме нулевого) в легенде тепловой карты.
 LEGEND_CLASSES = 4
+#: Радиус Земли в метрах: расстояния для склейки дубликатов считаем по большому кругу.
+EARTH_RADIUS_M = 6_371_008.8
+#: Метров в градусе широты: сторона сетки для склейки; долгота масштабируется косинусом широты.
+METERS_PER_DEGREE_LAT = 111_320.0
 #: Размер батча записи в БД (строк за один INSERT).
 BATCH_SIZE = 5000
 #: Предел протокола asyncpg на число параметров в одном запросе (защита от «самого большого» батча).
 MAX_QUERY_PARAMS = 32_000
 #: Допустимое расхождение суммы площадей ячеек с площадью полигона (граничные ячейки выходят за контур).
 AREA_TOLERANCE_PERCENT = 15.0
+
+
+#: Суммы по объектам внутри ячейки: площадь пересечения и длина пересечения (метрики Этапа 9).
+SpatialSums = namedtuple("SpatialSums", ["area_m2", "length_m"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +181,75 @@ def _to_grid_cell(h3_index: str) -> GridCell:
     )
 
 
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Расстояние между точками в метрах по большому кругу (для проверки «одна остановка или две»)."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = phi2 - phi1
+    d_lambda = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def dedup_points(
+    points: Sequence[tuple[int, float, float, int]],
+    *,
+    radius_m: float,
+) -> set[int]:
+    """Оставить по одному объекту из каждой группы близких: вернуть id тех, кого оставляем.
+
+    Зачем: одну остановку в OSM часто рисуют несколькими объектами (`highway=bus_stop`,
+    `public_transport=platform`, `stop_position`), и слой без склейки завышает число остановок
+    в полтора-два раза. Склейка живёт в агрегаторе, а не в импорте: это правило отображения, и его
+    можно изменить, не переимпортируя выгрузку.
+
+    ``points`` — ``(poi_id, lat, lon, category_id)``. Из группы остаётся объект с наименьшим id: в OSM
+    это, как правило, более ранний объект, то есть более стабильная запись.
+
+    Реализация — сетка со стороной радиуса: проверяем только девять соседних ячеек, поэтому обход
+    линейный (2065 остановок Томска — незаметное время).
+    """
+    if not points:
+        return set()
+
+    mean_lat = sum(lat for _, lat, _, _ in points) / len(points)
+    lat_step = radius_m / METERS_PER_DEGREE_LAT
+    lon_step = radius_m / (METERS_PER_DEGREE_LAT * max(math.cos(math.radians(mean_lat)), 0.01))
+
+    buckets: dict[tuple[int, int], list[tuple[int, float, float]]] = defaultdict(list)
+    kept: set[int] = set()
+
+    for poi_id, lat, lon, _category_id in sorted(points):
+        row, col = int(lat / lat_step), int(lon / lon_step)
+        duplicate = False
+        for row_shift in (-1, 0, 1):
+            for col_shift in (-1, 0, 1):
+                for _other_id, other_lat, other_lon in buckets.get((row + row_shift, col + col_shift), ()):
+                    if _distance_m(lat, lon, other_lat, other_lon) <= radius_m:
+                        duplicate = True
+                        break
+                if duplicate:
+                    break
+            if duplicate:
+                break
+
+        if not duplicate:
+            kept.add(poi_id)
+            buckets[(row, col)].append((poi_id, lat, lon))
+
+    return kept
+
+
+def cell_boundary_wkt(h3_index: int) -> str:
+    """Полигон ячейки в EWKT: нужен PostGIS, чтобы считать площадь и длину внутри ячейки.
+
+    Ячейка H3 — точка, а метрика «доля площади под застройкой» требует границ, поэтому полигон
+    хранится в `city_cells.boundary`. h3-py отдаёт вершины в порядке ``(lat, lon)`` — разворачиваем.
+    """
+    boundary = h3.cell_to_boundary(h3.int_to_str(h3_index))
+    body = ", ".join(f"{lon:.6f} {lat:.6f}" for lat, lon in [*boundary, boundary[0]])
+    return f"SRID=4326;POLYGON(({body}))"
+
+
 def build_cell_stat_rows(
     grid: dict[int, list[GridCell]],
     counts: dict[tuple[int, int, int], tuple[int, int]],
@@ -266,6 +345,78 @@ async def load_poi_rows(session: AsyncSession, city_id: int) -> list[tuple[int, 
     return [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
 
 
+async def load_layer_points(
+    session: AsyncSession,
+    city_id: int,
+    category_ids: Sequence[int],
+) -> list[tuple[int, float, float, int]]:
+    """Точки объектов слоя: ``(poi_id, lat, lon, category_id)``.
+
+    Нужны только для склейки дубликатов (`dedup_points`): в основном пути агрегации координаты не
+    участвуют — привязка к ячейке уже посчитана при импорте.
+    """
+    if not category_ids:
+        return []
+
+    result = await session.execute(
+        text(
+            "SELECT p.id, ST_Y(p.location::geometry), ST_X(p.location::geometry), pc.category_id "
+            "FROM pois p "
+            "JOIN poi_categories pc ON pc.poi_id = p.id "
+            "WHERE p.is_active AND pc.category_id = ANY(CAST(:categories AS int[])) "
+            "AND ST_Contains((SELECT boundary::geometry FROM cities WHERE id = :city_id), p.location::geometry)"
+        ),
+        {"city_id": city_id, "categories": list(category_ids)},
+    )
+    return [(row[0], float(row[1]), float(row[2]), row[3]) for row in result.all()]
+
+
+async def load_spatial_metrics(
+    session: AsyncSession,
+    city_id: int,
+    resolutions: Sequence[int],
+    category_ids: Sequence[int],
+) -> dict[tuple[int, int, int], SpatialSums]:
+    """Площадь и длина объектов внутри ячеек: ``(resolution, h3_index, category_id) → суммы``.
+
+    Считает PostGIS: объект пересекается с полигоном ячейки, и берётся площадь (для полигонов) или
+    длина (для линий) пересечения. Так доля застройки не «сваливается» в одну ячейку по центроиду:
+    большой жилой квартал распределяется по всем ячейкам, которые он накрывает.
+
+    Длину считаем на географии (`::geography`), то есть в метрах по земному эллипсоиду, а не в градусах.
+    """
+    if not category_ids:
+        return {}
+
+    result = await session.execute(
+        text(
+            "SELECT cc.resolution, cc.h3_index, pc.category_id, "
+            "       COALESCE(SUM(ST_Area("
+            "         ST_Intersection(p.geometry::geometry, cc.boundary::geometry)::geography"
+            "       )), 0) AS area_m2, "
+            "       COALESCE(SUM(ST_Length("
+            "         ST_Intersection(p.geometry::geometry, cc.boundary::geometry)::geography"
+            "       )), 0) AS length_m "
+            "FROM pois p "
+            "JOIN poi_categories pc ON pc.poi_id = p.id "
+            "JOIN city_cells cc ON ST_Intersects(p.geometry::geometry, cc.boundary::geometry) "
+            "WHERE p.is_active AND p.geometry IS NOT NULL "
+            "  AND cc.city_id = :city_id AND cc.resolution = ANY(CAST(:resolutions AS int[])) "
+            "  AND pc.category_id = ANY(CAST(:categories AS int[])) "
+            "  AND ST_Contains((SELECT boundary::geometry FROM cities WHERE id = :city_id), p.location::geometry) "
+            "GROUP BY cc.resolution, cc.h3_index, pc.category_id"
+        ),
+        {
+            "city_id": city_id,
+            "resolutions": list(resolutions),
+            "categories": list(category_ids),
+        },
+    )
+    return {
+        (row[0], row[1], row[2]): SpatialSums(area_m2=float(row[3]), length_m=float(row[4])) for row in result.all()
+    }
+
+
 def build_counts(
     rows: Sequence[tuple[int, int, int, bool, int]],
     resolutions: Iterable[int],
@@ -325,6 +476,7 @@ async def replace_city_grid(
                 "resolution": resolution,
                 "h3_index": cell.h3_index,
                 "centroid": f"SRID=4326;POINT({cell.centroid_lon} {cell.centroid_lat})",
+                "boundary": cell_boundary_wkt(cell.h3_index),
                 "area_km2": cell.area_km2,
             }
             for cell in cells
@@ -366,6 +518,82 @@ def build_cell_metric_rows(
                 "dataset_id": dataset_id,
             }
         )
+    return rows
+
+
+async def load_active_layer(session: AsyncSession, slug: str) -> tuple[int, int | None] | None:
+    """Активный слой по slug или None.
+
+    Мягкая проверка вместо исключения: если каталог опередил сид, агрегация остальных слоёв должна
+    пройти, а не упасть целиком.
+    """
+    row = (
+        (
+            await session.execute(
+                text("SELECT id, dataset_id FROM layers WHERE slug = :slug AND is_active"),
+                {"slug": slug},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return int(row["id"]), row["dataset_id"]
+
+
+def build_layer_metric_rows(
+    *,
+    layer: LayerDef,
+    city_id: int,
+    layer_id: int,
+    category_id: int,
+    dataset_id: int | None,
+    data_version: str,
+    grid: dict[int, list[GridCell]],
+    counts: dict[tuple[int, int, int], tuple[int, int]],
+    spatial: dict[tuple[int, int, int], SpatialSums],
+) -> list[dict[str, Any]]:
+    """Строки `cell_metrics` для слоя из каталога.
+
+    Тип метрики задаёт слой, а не агрегатор:
+
+    * ``density`` — объектов на км² (остановки, точки притяжения);
+    * ``area_share`` — доля площади ячейки под объектами слоя, % (жильё, работа, парковки);
+    * ``length`` — километры объектов в ячейке (пешеходные пути).
+
+    Число объектов всегда уезжает в ``extras``: оно нужно подписям и панели ячейки, но в раскраске
+    не участвует (ADR 0013: «штуки», «доля площади» и «километры» — разные шкалы).
+    """
+    rows: list[dict[str, Any]] = []
+    for resolution, cells in grid.items():
+        for cell in cells:
+            key = (resolution, cell.h3_index, category_id)
+            count = counts.get(key, (0, 0))[0]
+            sums = spatial.get(key)
+
+            if layer.metric_kind == "density":
+                value = count / cell.area_km2 if cell.area_km2 else 0.0
+            elif layer.metric_kind == "area_share":
+                area_km2 = (sums.area_m2 / 1_000_000.0) if sums else 0.0
+                value = min(100.0, area_km2 / cell.area_km2 * 100.0) if cell.area_km2 else 0.0
+            else:  # length
+                value = (sums.length_m / 1000.0) if sums else 0.0
+
+            rows.append(
+                {
+                    "city_id": city_id,
+                    "layer_id": layer_id,
+                    "category_id": category_id,
+                    "resolution": resolution,
+                    "h3_index": cell.h3_index,
+                    "data_version": data_version,
+                    "value": round(value, 4),
+                    "value_kind": layer.metric_kind,
+                    "extras": {"count": count},
+                    "dataset_id": dataset_id,
+                }
+            )
     return rows
 
 
@@ -507,25 +735,69 @@ async def aggregate_city(
     result.seconds = round(time.perf_counter() - started, 1)
 
     if not dry_run:
-        # Слой «Конкуренты» — единственный слой на Этапе 8; метрики пишем в новую таблицу,
-        # cell_stats оставляем заполненной как совместимый путь чтения (ADR 0013)
-        layer_id, dataset_id = await load_layer_identity(session)
-        metric_rows = build_cell_metric_rows(
-            stat_rows,
-            layer_id=layer_id,
-            dataset_id=dataset_id,
-            data_version=result.data_version,
-        )
+        # Слой «Конкуренты» собирается из статистики POI, слои Этапа 9 — из каталога: у них другие
+        # метрики (площадь, длина) и, для остановок, склейка дубликатов. `cell_stats` остаётся
+        # заполненной как совместимый путь чтения (ADR 0013)
+        competitors_id, dataset_id = await load_layer_identity(session)
+        layer_rows: list[tuple[int, list[dict[str, Any]]]] = [
+            (
+                competitors_id,
+                build_cell_metric_rows(
+                    stat_rows,
+                    layer_id=competitors_id,
+                    dataset_id=dataset_id,
+                    data_version=result.data_version,
+                ),
+            )
+        ]
+
+        # Площадь и длина считаются одним запросом на все слои каталога: PostGIS пересекает объекты
+        # с ячейками, а не Python перебирает их по одной
+        catalog_categories = [category_ids[layer.slug] for layer in LAYERS if layer.slug in category_ids]
+        spatial = await load_spatial_metrics(session, city.city_id, tuple(resolutions), catalog_categories)
+
+        for layer in LAYERS:
+            category_id = category_ids.get(layer.slug)
+            identity = await load_active_layer(session, layer.slug)
+            if category_id is None or identity is None:
+                continue
+            layer_id, layer_dataset_id = identity
+
+            layer_poi_rows = poi_rows
+            if layer.dedup_radius_m:
+                points = await load_layer_points(session, city.city_id, [category_id])
+                kept = dedup_points(points, radius_m=layer.dedup_radius_m)
+                layer_poi_rows = [row for row in poi_rows if row[4] != category_id or row[0] in kept]
+
+            layer_counts, _ = build_counts(layer_poi_rows, resolutions)
+            layer_rows.append(
+                (
+                    layer_id,
+                    build_layer_metric_rows(
+                        layer=layer,
+                        city_id=city.city_id,
+                        layer_id=layer_id,
+                        category_id=category_id,
+                        dataset_id=layer_dataset_id,
+                        data_version=result.data_version,
+                        grid=grid,
+                        counts=layer_counts,
+                        spatial=spatial,
+                    ),
+                )
+            )
+
         await replace_city_grid(session, city.city_id, grid)
         await replace_cell_stats(session, city.city_id, resolutions, stat_rows)
-        result.metrics_written = await replace_cell_metrics(
-            session,
-            city_id=city.city_id,
-            layer_id=layer_id,
-            resolutions=resolutions,
-            data_version=result.data_version,
-            rows=metric_rows,
-        )
+        for layer_id, rows in layer_rows:
+            result.metrics_written += await replace_cell_metrics(
+                session,
+                city_id=city.city_id,
+                layer_id=layer_id,
+                resolutions=resolutions,
+                data_version=result.data_version,
+                rows=rows,
+            )
         # Источник помнит версию данных, которая сейчас видна на карте (ТЗ §2.3): по ней API
         # выбирает снимок метрик без дорогих подзапросов на каждую ячейку
         if dataset_id is not None:

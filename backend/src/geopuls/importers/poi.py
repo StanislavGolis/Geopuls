@@ -51,6 +51,7 @@ from geopuls.categories import (
 from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
+from geopuls.layers_catalog import ALL_CATEGORIES
 from geopuls.models import Poi, PoiCategory
 from geopuls.osmfile import read_osm_timestamp
 
@@ -104,6 +105,8 @@ class PoiRecord:
     h3_r8: int
     tags: dict[str, str]
     category_slugs: tuple[str, ...]
+    #: Геометрия way в WKT (линия или полигон) для метрик площади и длины (Этап 9). У node — None.
+    geometry_wkt: str | None = None
 
     def as_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False)
@@ -112,10 +115,12 @@ class PoiRecord:
     def from_json(cls, line: str) -> PoiRecord:
         payload = json.loads(line)
         payload["category_slugs"] = tuple(payload["category_slugs"])
+        # Дампы, снятые до Этапа 9, поля не содержат: читаем их без геометрии, а не падаем
+        payload.setdefault("geometry_wkt", None)
         return cls(**payload)
 
     def as_row(self, *, source: str) -> dict[str, Any]:
-        """Строка для вставки в `pois` (координаты передаются как WKT для PostGIS)."""
+        """Строка для вставки в `pois` (координаты и геометрия передаются как WKT для PostGIS)."""
         return {
             "osm_type": self.osm_type,
             "osm_id": self.osm_id,
@@ -124,6 +129,7 @@ class PoiRecord:
             "addr_street": self.addr_street,
             "addr_housenumber": self.addr_housenumber,
             "location": f"SRID=4326;POINT({self.lon} {self.lat})",
+            "geometry": f"SRID=4326;{self.geometry_wkt}" if self.geometry_wkt else None,
             "h3_r9": self.h3_r9,
             "h3_r8": self.h3_r8,
             "tags": self.tags,
@@ -178,15 +184,36 @@ def way_point(coords: Sequence[tuple[float, float]], *, closed: bool) -> tuple[f
     return _mean_point(coords)
 
 
+def way_geometry_wkt(coords: Sequence[tuple[float, float]], *, closed: bool) -> str | None:
+    """Геометрия way в WKT: полигон для замкнутых, линия для остальных (None — если точек мало).
+
+    Нужна метрикам площади и длины (Этап 9): по одной точке нельзя посчитать ни долю площади ячейки
+    под застройкой, ни километры пешеходных путей. Координаты — ``(lon, lat)``, как отдаёт osmium.
+    """
+    if len(coords) < 2:
+        return None
+
+    points = list(coords)
+    if closed and points[0] != points[-1]:
+        points.append(points[0])
+
+    body = ", ".join(f"{lon:.7f} {lat:.7f}" for lon, lat in points)
+    if closed and len(points) >= 4:
+        return f"POLYGON(({body}))"
+    return f"LINESTRING({body})"
+
+
 def build_poi_record(
     osm_type: str,
     osm_id: int,
     tags: dict[str, str],
     lon: float,
     lat: float,
+    geometry_wkt: str | None = None,
 ) -> PoiRecord | None:
-    """Собрать запись POI. None — если объект не относится ни к одной категории MVP."""
-    category_slugs = match_categories(tags)
+    """Собрать запись POI. None — если объект не относится ни к одной категории проекта."""
+    # Категории всех слоёв, а не только конкуренты: слои Этапа 9 наполняются этим же импортом
+    category_slugs = match_categories(tags, ALL_CATEGORIES)
     if not category_slugs:
         return None
 
@@ -205,6 +232,7 @@ def build_poi_record(
         h3_r8=h3.str_to_int(cells[8]),
         tags=tags,
         category_slugs=category_slugs,
+        geometry_wkt=geometry_wkt,
     )
 
 
@@ -273,10 +301,19 @@ class PoiScanner(osmium.SimpleHandler):
         if not tags:
             return
         coords = [(node.location.lon, node.location.lat) for node in w.nodes if node.location.valid()]
-        point = way_point(coords, closed=w.is_closed())
+        closed = w.is_closed()
+        point = way_point(coords, closed=closed)
         if point is None:
             return
-        self._handle("way", w.id, tags, point[0], point[1])
+        # Геометрия нужна метрикам площади и длины: точка её не заменяет
+        self._handle(
+            "way",
+            w.id,
+            tags,
+            point[0],
+            point[1],
+            geometry_wkt=way_geometry_wkt(coords, closed=closed),
+        )
 
     def flush(self, *, check_limit: bool = True) -> None:
         if not self.buffer:
@@ -290,7 +327,16 @@ class PoiScanner(osmium.SimpleHandler):
     def _in_scope(self, lat: float, lon: float) -> bool:
         return any(scope.contains(lat, lon) for scope in self.scopes)
 
-    def _handle(self, osm_type: str, osm_id: int, tags: dict[str, str], lon: float, lat: float) -> None:
+    def _handle(
+        self,
+        osm_type: str,
+        osm_id: int,
+        tags: dict[str, str],
+        lon: float,
+        lat: float,
+        *,
+        geometry_wkt: str | None = None,
+    ) -> None:
         if not tags:
             return
         self.stats.tagged += 1
@@ -299,7 +345,7 @@ class PoiScanner(osmium.SimpleHandler):
             return
 
         self.stats.in_scope += 1
-        record = build_poi_record(osm_type, osm_id, tags, lon, lat)
+        record = build_poi_record(osm_type, osm_id, tags, lon, lat, geometry_wkt)
         if record is None:
             self.stats.without_category += 1
             return

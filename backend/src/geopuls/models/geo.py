@@ -75,9 +75,17 @@ class CityCell(Base):
     centroid: Mapped[WKBElement | None] = mapped_column(
         Geography(geometry_type="POINT", srid=4326, spatial_index=False)
     )
+    #: Полигон ячейки: по нему считаются метрики площади и длины (пересечение с геометрией объекта).
+    #: Хранится в БД, чтобы это делал PostGIS одним запросом, а не Python по одной ячейке.
+    boundary: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="POLYGON", srid=4326, spatial_index=False)
+    )
     area_km2: Mapped[float] = mapped_column(Float)
 
-    __table_args__ = (Index("ix_city_cells_centroid", "centroid", postgresql_using="gist"),)
+    __table_args__ = (
+        Index("ix_city_cells_centroid", "centroid", postgresql_using="gist"),
+        Index("ix_city_cells_boundary", "boundary", postgresql_using="gist"),
+    )
 
 
 class CellStat(Base):

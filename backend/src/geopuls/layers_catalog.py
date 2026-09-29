@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
-from geopuls.categories import CategoryRule, rule
+from geopuls.categories import MVP_CATEGORIES, Category, CategoryRule, rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,10 @@ class LayerCategoryDef:
     slug: str
     name_ru: str
     rules: tuple[CategoryRule, ...]
+
+    def matches(self, tags: Mapping[str, str]) -> bool:
+        """Подходит ли объект под вариант: правила варианта объединяются через «или»."""
+        return any(item.matches(tags) for item in self.rules)
 
     def as_osm_tags(self) -> list[dict[str, str | None]]:
         """Правила для `categories.osm_tags` (JSONB) — тем же форматом, что у категорий MVP."""
@@ -232,6 +237,13 @@ LAYERS: tuple[LayerDef, ...] = (
 )
 
 LAYERS_BY_SLUG: dict[str, LayerDef] = {layer.slug: layer for layer in LAYERS}
+
+#: Все категории проекта: восемь категорий конкурентов и по одной на каждый слой Этапа 9.
+#: Импортёр и сид ходят сюда, а не в `MVP_CATEGORIES`: иначе новые слои остались бы без данных.
+ALL_CATEGORIES: tuple[Category | LayerCategoryDef, ...] = (
+    *MVP_CATEGORIES,
+    *(category for layer in LAYERS for category in layer.categories),
+)
 
 #: Метрики, которые считаются по геометрии объектов внутри ячейки (нужна площадь или длина, а не точка).
 SPATIAL_METRICS: frozenset[str] = frozenset({"area_share", "length"})

@@ -44,6 +44,12 @@ class Poi(Base):
     addr_street: Mapped[str | None] = mapped_column(String(200))
     addr_housenumber: Mapped[str | None] = mapped_column(String(50))
     location: Mapped[WKBElement] = mapped_column(Geography(geometry_type="POINT", srid=4326, spatial_index=False))
+    #: Геометрия объекта для метрик площади и длины (Этап 9): у way это линия или полигон, у node — NULL.
+    #: Точка (`location`) остаётся основой всего остального: по ней идёт привязка к ячейке, список
+    #: объектов и фильтр по полигону города.
+    geometry: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="GEOMETRY", srid=4326, spatial_index=False)
+    )
     h3_r9: Mapped[int] = mapped_column(BigInteger)
     h3_r8: Mapped[int] = mapped_column(BigInteger)
     tags: Mapped[dict[str, Any]] = mapped_column(JSONB)
@@ -60,6 +66,7 @@ class Poi(Base):
         Index("ix_pois_h3_r9", "h3_r9"),
         Index("ix_pois_h3_r8", "h3_r8"),
         Index("ix_pois_location", "location", postgresql_using="gist"),
+        Index("ix_pois_geometry", "geometry", postgresql_using="gist"),
     )
 
 

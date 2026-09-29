@@ -20,6 +20,7 @@ from geopuls.importers.poi import (
     read_dump_meta,
     resolve_data_version,
     scan_pbf,
+    way_geometry_wkt,
     way_point,
 )
 from geopuls.seed import seed_categories, seed_city
@@ -36,8 +37,50 @@ def test_build_poi_record_matches_categories() -> None:
 
 
 def test_build_poi_record_returns_none_for_non_poi() -> None:
-    assert build_poi_record("node", 2, {"highway": "bus_stop"}, 84.9482, 56.4847) is None
+    # Обычная улица не POI. `highway=bus_stop` раньше был «не POI», но с Этапа 9 это слой транспорта
+    assert build_poi_record("way", 2, {"highway": "residential"}, 84.9482, 56.4847) is None
     assert build_poi_record("node", 3, {}, 84.9482, 56.4847) is None
+
+
+def test_build_poi_record_matches_layer_categories() -> None:
+    """Слои Этапа 9 наполняются тем же импортом: теги остановки и жилого дома дают свои категории."""
+    stop = build_poi_record("node", 5, {"highway": "bus_stop"}, 84.9482, 56.4847)
+    house = build_poi_record("way", 6, {"building": "apartments"}, 84.9482, 56.4847)
+
+    assert stop is not None
+    assert stop.category_slugs == ("transport_stops",)
+    assert house is not None
+    assert house.category_slugs == ("residential",)
+
+
+def test_way_geometry_wkt_builds_polygon_and_line() -> None:
+    """Геометрия way нужна метрикам площади и длины: полигон для замкнутых, линия для остальных."""
+    ring = [(84.9, 56.4), (84.91, 56.4), (84.91, 56.41), (84.9, 56.4)]
+    line = [(84.9, 56.4), (84.91, 56.41)]
+
+    polygon = way_geometry_wkt(ring, closed=True)
+    assert polygon is not None
+    assert polygon.startswith("POLYGON((84.9000000 56.4000000")
+    assert polygon.endswith("56.4000000))")
+
+    assert way_geometry_wkt(line, closed=False) == ("LINESTRING(84.9000000 56.4000000, 84.9100000 56.4100000)")
+    assert way_geometry_wkt([(84.9, 56.4)], closed=False) is None
+
+
+def test_poi_record_serializes_geometry() -> None:
+    """Геометрия доезжает до БД: иначе метрики площади и длины считались бы по пустым полям."""
+    record = build_poi_record("way", 7, {"building": "apartments"}, 84.9482, 56.4847, "POLYGON((1 1, 2 1, 2 2, 1 1))")
+    assert record is not None
+
+    row = record.as_row(source="geofabrik")
+    assert row["geometry"] == "SRID=4326;POLYGON((1 1, 2 1, 2 2, 1 1))"
+    # Запись без геометрии (узел) остаётся валидной: колонка nullable
+    assert (
+        build_poi_record("node", 8, {"amenity": "cafe"}, 84.9482, 56.4847).as_row(  # type: ignore[union-attr]
+            source="geofabrik"
+        )["geometry"]
+        is None
+    )
 
 
 def test_build_poi_record_computes_both_h3_resolutions() -> None:
