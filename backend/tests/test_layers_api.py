@@ -112,6 +112,26 @@ def test_layer_cells_404_for_unknown_layer(client: TestClient) -> None:
     assert "Слой" in response.json()["detail"]
 
 
+def test_layer_cells_matches_legacy_cells_endpoint(client: TestClient) -> None:
+    """Регрессия этапа: слой «Конкуренты» обязан отдавать те же числа, что старый `/cells`.
+
+    Это проверка главного требования Этапа 8: продукт работает как раньше, но на новой схеме.
+    """
+    params = {"city": "tomsk", "category": "cafe"}
+    legacy = client.get("/api/v1/cells", params=params).json()
+    layer = client.get("/api/v1/layers/competitors/cells", params=params).json()
+
+    assert layer["meta"]["cell_count"] == legacy["meta"]["cell_count"]
+    assert layer["meta"]["non_empty_count"] == legacy["meta"]["non_empty_count"]
+    assert round(layer["meta"]["max_value"], 2) == legacy["meta"]["max_density"]
+    assert layer["meta"]["breaks"] == legacy["meta"]["density_breaks"]
+
+    legacy_values = {item["id"]: item["properties"]["density"] for item in legacy["features"]}
+    layer_values = {item["id"]: round(item["properties"]["value"], 2) for item in layer["features"]}
+    assert layer_values == legacy_values
+    assert all(item["properties"]["count"] >= 0 for item in layer["features"])
+
+
 def test_cell_profile_lists_metrics_of_all_layers(client: TestClient) -> None:
     response = client.get(f"/api/v1/cells/{CAFE_CELL}", params={"city": "tomsk"})
 
