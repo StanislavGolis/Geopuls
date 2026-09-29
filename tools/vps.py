@@ -1,7 +1,9 @@
 """Транспорт для деплоя: неинтерактивный SSH/SFTP к VPS (используется tools/deploy.ps1).
 
-Секретов внутри нет: пароль берётся из переменной окружения ``VPS_PASSWORD``, адрес и пользователь —
-из ``VPS_HOST``/``VPS_USER`` (значения по умолчанию — прод-сервер ГЕОПУЛЬС, см. docs/deploy.md).
+Секретов внутри нет: путь к ключу берётся из ``VPS_KEY`` (по умолчанию ``~/.ssh/id_ed25519``),
+адрес и пользователь — из ``VPS_HOST``/``VPS_USER`` (значения по умолчанию — прод-сервер ГЕОПУЛЬС,
+см. docs/deploy.md). Пароль из ``VPS_PASSWORD`` используется только как резервный путь: на проде вход
+по паролю выключен, работает ключ.
 
     uv run --with paramiko python tools/vps.py run "uname -a"
     uv run --with paramiko python tools/vps.py sh  path/to/script.sh       # скрипт файлом, не пайпом
@@ -18,6 +20,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from pathlib import Path
 
 import paramiko
 
@@ -25,23 +28,27 @@ HOST = os.environ.get("VPS_HOST", "201.34.158.13")
 USER = os.environ.get("VPS_USER", "root")
 PORT = int(os.environ.get("VPS_PORT", "22"))
 PASSWORD = os.environ.get("VPS_PASSWORD", "")
+KEY = Path(os.environ.get("VPS_KEY", "~/.ssh/id_ed25519")).expanduser()
 TIMEOUT = float(os.environ.get("VPS_TIMEOUT", "240"))
 
 
 def connect() -> paramiko.SSHClient:
+    """Подключиться по ключу, а если его нет — по паролю.
+
+    Ключ первый не для удобства: на проде вход по паролю выключен (`/etc/ssh/sshd_config.d/00-geopuls.conf`),
+    поэтому деплой обязан работать ключом, а пароль остаётся для серверов, где ключ ещё не заведён.
+    """
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        HOST,
-        port=PORT,
-        username=USER,
-        password=PASSWORD,
-        timeout=30,
-        banner_timeout=30,
-        auth_timeout=30,
-        allow_agent=False,
-        look_for_keys=False,
-    )
+    common = {"port": PORT, "username": USER, "timeout": 30, "banner_timeout": 30, "auth_timeout": 30}
+
+    if KEY.exists():
+        client.connect(
+            HOST, key_filename=str(KEY), allow_agent=False, look_for_keys=False, **common
+        )
+        return client
+
+    client.connect(HOST, password=PASSWORD, allow_agent=False, look_for_keys=False, **common)
     return client
 
 

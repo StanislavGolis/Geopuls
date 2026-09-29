@@ -1,9 +1,12 @@
 # Развёртывание текущего коммита на прод одной командой.
 #
-#   $env:VPS_PASSWORD = '<пароль root>'        # берётся из окружения, в репозиторий не попадает
 #   pwsh -File tools/deploy.ps1                # архив → сервер → update.sh → проверка прода
 #   pwsh -File tools/deploy.ps1 -SkipCheck     # без финальной проверки (только выкат)
 #   pwsh -File tools/deploy.ps1 -AllowDirty    # разрешить деплой с незакоммиченными правками
+#
+# Доступ к серверу — по ключу (``~/.ssh/id_ed25519``, путь переопределяется ``VPS_KEY``): на проде
+# вход по паролю выключен. Пароль (``VPS_PASSWORD``) остаётся резервным путём для серверов, где ключ
+# ещё не заведён.
 #
 # Ожидание идёт по `/version`: если на сервер уехал не тот архив (например, собранный до коммита),
 # проверка этого не пропустит — именно на таких граблях мы стояли.
@@ -27,11 +30,15 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $archive = Join-Path $repoRoot 'data\processed\geopuls-src.tar.gz'
 $vps = Join-Path $PSScriptRoot 'vps.py'
+# Ключ доступа к серверу: на проде вход по паролю выключен, поэтому ключ — основной путь
+$keyPath = if ($env:VPS_KEY) { $env:VPS_KEY } else { Join-Path $HOME '.ssh\id_ed25519' }
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-if (-not $env:VPS_PASSWORD) {
-    Write-Host 'Нужен пароль: $env:VPS_PASSWORD = ''<пароль root>''' -ForegroundColor Red
+if (-not (Test-Path $keyPath) -and -not $env:VPS_PASSWORD) {
+    Write-Host 'Нужен доступ к серверу: положите ключ в ~/.ssh/id_ed25519' -ForegroundColor Red
+    Write-Host '(или задайте $env:VPS_KEY) — на проде вход по паролю выключен.' -ForegroundColor Red
+    Write-Host 'Резервный путь: $env:VPS_PASSWORD = ''<пароль root>''' -ForegroundColor Red
     exit 2
 }
 $env:VPS_HOST = $VpsHost
