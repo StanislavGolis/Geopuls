@@ -19,6 +19,20 @@ log "1/4 распаковываю исходники в $APP_DIR"
 tar -xzf "$ARCHIVE" -C "$APP_DIR"
 chmod +x infra/ops/*.sh
 
+# Версия из архива: `git archive` подставляет в VERSION коммит и ссылку (см. .gitattributes)
+if [ -f VERSION ]; then
+    archive_commit="$(sed -n 's/^commit=//p' VERSION | head -1)"
+    archive_refs="$(sed -n 's/^refs=//p' VERSION | head -1)"
+    log "версия из архива: ${archive_commit}${archive_refs}"
+    if [ -n "$archive_commit" ] && [ -f .env ]; then
+        if grep -q '^GEOPULS_GIT_SHA=' .env; then
+            sed -i "s/^GEOPULS_GIT_SHA=.*/GEOPULS_GIT_SHA=${archive_commit}/" .env
+        else
+            echo "GEOPULS_GIT_SHA=${archive_commit}" >> .env
+        fi
+    fi
+fi
+
 log "2/4 сборка и запуск прод-профиля"
 bash infra/ops/deploy.sh
 

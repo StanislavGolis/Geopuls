@@ -1,0 +1,3 @@
+commit=$Format:%h$
+date=$Format:%cs$
+refs=$Format:%d$

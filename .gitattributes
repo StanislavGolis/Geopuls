@@ -25,3 +25,7 @@
 # Сгенерированные lock-файлы: не показывать в диффе
 uv.lock -diff linguist-generated
 package-lock.json -diff linguist-generated
+
+# VERSION подставляется при `git archive`: в архив попадает коммит и ссылка (в том числе тег),
+# из которых развёрнут сервер. Так /version не приходится проставлять руками при деплое.
+VERSION export-subst

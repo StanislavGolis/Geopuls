@@ -22,6 +22,21 @@ log "распаковка исходников"
 tar -xzf "$ARCHIVE" -C "$APP_DIR"
 chmod +x infra/ops/*.sh backend/docker-entrypoint.sh 2>/dev/null || true
 
+# Версия из архива: `git archive` подставляет в VERSION коммит и ссылку, из которых собран архив
+# (см. .gitattributes), поэтому /version на сервере не приходится проставлять руками.
+if [ -f VERSION ]; then
+    archive_commit="$(sed -n 's/^commit=//p' VERSION | head -1)"
+    archive_refs="$(sed -n 's/^refs=//p' VERSION | head -1)"
+    log "версия из архива: ${archive_commit}${archive_refs}"
+    if [ -n "$archive_commit" ] && [ -f .env ]; then
+        if grep -q '^GEOPULS_GIT_SHA=' .env; then
+            sed -i "s/^GEOPULS_GIT_SHA=.*/GEOPULS_GIT_SHA=${archive_commit}/" .env
+        else
+            echo "GEOPULS_GIT_SHA=${archive_commit}" >> .env
+        fi
+    fi
+fi
+
 log "пересборка и запуск"
 bash infra/ops/deploy.sh
 
