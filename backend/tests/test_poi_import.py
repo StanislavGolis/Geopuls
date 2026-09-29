@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from conftest import DB_TESTS_ENABLED, MINI_PBF, TOMSK_SCOPE, tomsk_city_params
 from geopuls.db import session_scope
 from geopuls.importers.poi import (
+    MAX_QUERY_PARAMS,
     ImportError_,
     PoiRecord,
     build_poi_record,
+    chunk_records,
     default_dump_path,
     iter_dump,
     read_dump_meta,
@@ -65,6 +67,24 @@ def test_way_geometry_wkt_builds_polygon_and_line() -> None:
 
     assert way_geometry_wkt(line, closed=False) == ("LINESTRING(84.9000000 56.4000000, 84.9100000 56.4100000)")
     assert way_geometry_wkt([(84.9, 56.4)], closed=False) is None
+
+
+def test_chunk_records_respects_parameter_limit() -> None:
+    """Батч вставки не должен превышать предел параметров asyncpg — иначе импорт падает на объёме.
+
+    Ловушка с прода: добавление колонки `geometry` увеличило число параметров на строку, и импорт
+    полной выгрузки упал на «the number of query arguments cannot exceed 32767».
+    """
+    records = [object()] * 5000
+    batches = list(chunk_records(records, columns=14))
+
+    assert sum(len(batch) for batch in batches) == 5000
+    assert all(len(batch) * 14 <= MAX_QUERY_PARAMS for batch in batches)
+    assert len(batches) > 1
+
+    # Широкие таблицы: батч становится меньше сам, но не исчезает (минимум одна запись)
+    wide = list(chunk_records(records[:5], columns=MAX_QUERY_PARAMS))
+    assert [len(batch) for batch in wide] == [1, 1, 1, 1, 1]
 
 
 def test_poi_record_serializes_geometry() -> None:

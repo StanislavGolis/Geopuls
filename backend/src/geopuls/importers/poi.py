@@ -496,6 +496,24 @@ async def fetch_watermark(session: AsyncSession) -> datetime:
     return value
 
 
+#: Предел протокола asyncpg на число параметров в одном запросе. Батч вставки режется по нему: без
+#: этого широкие таблицы валятся на «the number of query arguments cannot exceed 32767». Грабля
+#: найдена на проде: колонка `geometry` подняла `pois` с 13 до 14 параметров на строку и перевела
+#: импорт через предел, хотя данные и размер выгрузки были те же.
+MAX_QUERY_PARAMS = 32_000
+
+
+def chunk_records(records: Sequence[Any], *, columns: int) -> Iterator[list[Any]]:
+    """Нарезать записи на батчи по пределу драйвера.
+
+    Размер считается от числа колонок, а не берётся константой: добавили колонку — батч сам стал
+    меньше. Иначе предел переходит незаметно, и импорт падает только на полной выгрузке.
+    """
+    size = max(1, (MAX_QUERY_PARAMS - columns) // max(columns, 1))
+    for start in range(0, len(records), size):
+        yield list(records[start : start + size])
+
+
 async def upsert_records(
     session: AsyncSession,
     records: Sequence[PoiRecord],
@@ -503,27 +521,36 @@ async def upsert_records(
     category_ids: dict[str, int],
     source: str,
 ) -> int:
-    """Батчевый upsert POI и связей с категориями. Возвращает число обработанных записей."""
+    """Батчевый upsert POI и связей с категориями. Возвращает число обработанных записей.
+
+    Вставка идёт порциями по пределу параметров драйвера: размер порции зависит от числа колонок
+    таблицы, поэтому новая колонка не может сломать импорт молча.
+    """
     if not records:
         return 0
 
     table = Poi.__table__
-    statement = pg_insert(table).values(
-        [{**record.as_row(source=source), "updated_at": func.clock_timestamp()} for record in records]
-    )
-    update_columns = {
-        column.name: statement.excluded[column.name]
-        for column in table.c
-        if column.name not in {"id", "osm_type", "osm_id"}
-    }
-    update_columns["updated_at"] = func.clock_timestamp()
-    statement = statement.on_conflict_do_update(
-        index_elements=[table.c.osm_type, table.c.osm_id],
-        set_=update_columns,
-    ).returning(table.c.id, table.c.osm_type, table.c.osm_id)
+    poi_ids: dict[tuple[str, int], int] = {}
+    written = 0
 
-    rows = (await session.execute(statement)).all()
-    poi_ids = {(row.osm_type, row.osm_id): row.id for row in rows}
+    for batch in chunk_records(records, columns=len(table.columns)):
+        statement = pg_insert(table).values(
+            [{**record.as_row(source=source), "updated_at": func.clock_timestamp()} for record in batch]
+        )
+        update_columns = {
+            column.name: statement.excluded[column.name]
+            for column in table.c
+            if column.name not in {"id", "osm_type", "osm_id"}
+        }
+        update_columns["updated_at"] = func.clock_timestamp()
+        statement = statement.on_conflict_do_update(
+            index_elements=[table.c.osm_type, table.c.osm_id],
+            set_=update_columns,
+        ).returning(table.c.id, table.c.osm_type, table.c.osm_id)
+
+        rows = (await session.execute(statement)).all()
+        poi_ids.update({(row.osm_type, row.osm_id): row.id for row in rows})
+        written += len(rows)
 
     links = [
         {"poi_id": poi_ids[(record.osm_type, record.osm_id)], "category_id": category_ids[slug]}
@@ -531,9 +558,10 @@ async def upsert_records(
         for slug in record.category_slugs
         if slug in category_ids
     ]
-    if links:
-        await session.execute(pg_insert(PoiCategory.__table__).values(links).on_conflict_do_nothing())
-    return len(rows)
+    link_table = PoiCategory.__table__
+    for batch in chunk_records(links, columns=len(link_table.columns)):
+        await session.execute(pg_insert(link_table).values(batch).on_conflict_do_nothing())
+    return written
 
 
 async def deactivate_missing(session: AsyncSession, *, source: str, watermark: datetime) -> int:
