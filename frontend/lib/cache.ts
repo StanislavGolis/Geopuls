@@ -1,5 +1,5 @@
 /**
- * Кэш последнего успешного ответа теплового слоя.
+ * Кэш последнего успешного ответа карты.
  *
  * Зачем: при потере связи показываем последние загруженные данные и баннер «нет связи»
  * (раздел 4.3 ТЗ, дизайн-спека §4.8), а не пустую карту. Храним в `sessionStorage`: данные живут
@@ -9,16 +9,16 @@
  * приватный режим, переполнение квоты и битый JSON обрабатываются как «кэша нет».
  */
 
-import type { CellsResponse } from "@/lib/api";
+import type { LayerGrid } from "@/lib/api";
 
-const PREFIX = "geopuls.cells";
+const PREFIX = "geopuls.grid";
 
-/** Ключ кэша: сетка зависит от города, категории и разрешения. */
-export function cellsCacheKey(city: string, category: string, res: number): string {
-  return `${PREFIX}:${city}:${category}:${res}`;
+/** Ключ кэша: сетка зависит от города, разрешения и набора слоёв (ADR 0013). */
+export function gridCacheKey(city: string, base: string, overlays: string, res: number): string {
+  return `${PREFIX}:${city}:${res}:${base}:${overlays}`;
 }
 
-export function saveCells(key: string, payload: CellsResponse): void {
+export function saveGrid(key: string, payload: LayerGrid): void {
   try {
     window.sessionStorage.setItem(key, JSON.stringify(payload));
   } catch {
@@ -26,31 +26,33 @@ export function saveCells(key: string, payload: CellsResponse): void {
   }
 }
 
-export function loadCells(key: string): CellsResponse | null {
+export function loadGrid(key: string): LayerGrid | null {
   try {
     const raw = window.sessionStorage.getItem(key);
     if (!raw) return null;
 
-    const parsed: unknown = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Partial<LayerGrid>;
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      !Array.isArray((parsed as CellsResponse).features) ||
-      typeof (parsed as CellsResponse).meta !== "object"
+      !Array.isArray(parsed.cells?.h3) ||
+      !Array.isArray(parsed.layers) ||
+      typeof parsed.meta !== "object" ||
+      parsed.meta === null
     ) {
       return null;
     }
 
-    return parsed as CellsResponse;
+    return parsed as LayerGrid;
   } catch {
     return null;
   }
 }
 
-export function clearCells(key: string): void {
+export function clearGrid(key: string): void {
   try {
     window.sessionStorage.removeItem(key);
   } catch {
-    // см. saveCells
+    // см. saveGrid
   }
 }

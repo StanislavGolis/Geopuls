@@ -2,23 +2,30 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MapExplorer from "./MapExplorer";
-import { ApiError, type CategoryMeta, type CellsResponse, type CityMeta } from "@/lib/api";
-import { cellsCacheKey, saveCells } from "@/lib/cache";
+import {
+  ApiError,
+  type CategoryMeta,
+  type CityMeta,
+  type LayerGrid,
+  type LayerMeta,
+  type LayerGridQuery,
+} from "@/lib/api";
+import { gridCacheKey, saveGrid } from "@/lib/cache";
 import { EMPTY_URL_STATE } from "@/lib/urlState";
 
 // Карта тянет WebGL — в jsdom подменяем её заглушкой и проверяем передачу данных
 vi.mock("./MapView", () => ({
   default: ({
-    cells,
+    grid,
     onCellSelect,
     selectedCell,
   }: {
-    cells: CellsResponse | null;
+    grid: LayerGrid | null;
     onCellSelect: (h3: string) => void;
     selectedCell: string | null;
   }) => (
     <div data-testid="map">
-      features={cells?.features.length ?? 0}
+      cells={grid?.cells.h3.length ?? 0}
       <span data-testid="selected-cell">{selectedCell ?? ""}</span>
       <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
         клик по ячейке
@@ -34,7 +41,8 @@ vi.mock("./MapView", () => ({
 const apiMock = {
   fetchCities: vi.fn(),
   fetchCategories: vi.fn(),
-  fetchCells: vi.fn(),
+  fetchLayers: vi.fn(),
+  fetchLayerGrid: vi.fn(),
   fetchPois: vi.fn(),
 };
 
@@ -44,7 +52,8 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     fetchCities: () => apiMock.fetchCities(),
     fetchCategories: () => apiMock.fetchCategories(),
-    fetchCells: (query: unknown) => apiMock.fetchCells(query),
+    fetchLayers: () => apiMock.fetchLayers(),
+    fetchLayerGrid: (query: LayerGridQuery) => apiMock.fetchLayerGrid(query),
     fetchPois: (query: unknown) => apiMock.fetchPois(query),
   };
 });
@@ -93,45 +102,98 @@ const CATEGORIES: CategoryMeta[] = [
   { slug: "cafe", name: "Кофейни и кафе", color: "#1f6fb2", poi_count: 248 },
 ];
 
-const CELLS: CellsResponse = {
-  type: "FeatureCollection",
-  features: [
+/** Реестр слоёв: базовый с вариантами и три слоя, которые можно включить наложением. */
+const LAYERS: LayerMeta[] = [
+  {
+    slug: "competitors",
+    name: "Конкуренты (объекты по категориям)",
+    kind: "osm",
+    metric_kind: "density",
+    unit: "POI/км²",
+    scale: "quantile",
+    color: "#1f6fb2",
+    can_be_base: true,
+    categories: ["bar", "cafe"],
+    source: {
+      slug: "osm",
+      title: "OpenStreetMap (Geofabrik)",
+      license: "ODbL 1.0",
+      license_url: "https://opendatacommons.org/licenses/odbl/1-0/",
+      attribution_text: "© OpenStreetMap contributors",
+      citation: null,
+      source_url: null,
+      data_version: "2026-09-27",
+    },
+  },
+  ...[
+    ["population", "Население", "people_density", "чел/км²"],
+    ["transport", "Транспорт", "count", "шт"],
+    ["pedestrian", "Пешеходные пути", "length", "км"],
+  ].map(([slug, name, metricKind, unit]): LayerMeta => ({
+    slug,
+    name,
+    kind: "osm",
+    metric_kind: metricKind,
+    unit,
+    scale: "quantile",
+    color: "#334155",
+    can_be_base: true,
+    categories: [],
+    source: null,
+  })),
+];
+
+const GRID: LayerGrid = {
+  type: "LayerGrid",
+  cells: {
+    h3: ["890b80db643ffff"],
+    geometry: [
+      [
+        [85.02, 56.51],
+        [85.03, 56.51],
+        [85.03, 56.52],
+        [85.02, 56.51],
+      ],
+    ],
+  },
+  layers: [
     {
-      type: "Feature",
-      id: "890b80db643ffff",
-      properties: { h3: "890b80db643ffff", count: 2, density: 17.1, has_address_ratio: 0.5 },
-      geometry: {
-        type: "Polygon",
-        coordinates: [
-          [
-            [85.02, 56.51],
-            [85.03, 56.51],
-            [85.03, 56.52],
-            [85.02, 56.51],
-          ],
-        ],
-      },
+      slug: "competitors",
+      name: "Конкуренты (объекты по категориям)",
+      category: "cafe",
+      role: "base",
+      metric_kind: "density",
+      unit: "POI/км²",
+      scale: "quantile",
+      color: "#1f6fb2",
+      values: [17.1],
+      extras: { count: [2] },
+      covered_count: 1,
+      non_empty_count: 1,
+      total_value: 17.1,
+      max_value: 17.1,
+      breaks: [0, 25.6, 42.7, 59.8, 76.9],
+      source: null,
     },
   ],
   meta: {
     city: "tomsk",
-    category: "cafe",
     res: 9,
+    cell_count: 1,
+    base: "competitors:cafe",
+    overlays: [],
     data_version: "2026-09-27",
     updated_at: "2026-09-28T12:39:25Z",
-    cell_count: 1507,
-    non_empty_count: 130,
-    poi_count: 248,
-    max_density: 76.9,
-    density_breaks: [0, 25.6, 42.7, 59.8, 76.9],
     bbox_filter: null,
+    sources: [],
   },
 };
 
 beforeEach(() => {
   apiMock.fetchCities.mockResolvedValue([CITY]);
   apiMock.fetchCategories.mockResolvedValue(CATEGORIES);
-  apiMock.fetchCells.mockResolvedValue(CELLS);
+  apiMock.fetchLayers.mockResolvedValue({ layers: LAYERS, data_version: "2026-09-27" });
+  apiMock.fetchLayerGrid.mockResolvedValue(GRID);
   apiMock.fetchPois.mockResolvedValue(POIS);
   window.history.replaceState(null, "", "/");
   // Кэш последнего ответа живёт в sessionStorage и переживает тесты — начинаем с чистого
@@ -147,27 +209,43 @@ describe("MapExplorer", () => {
   it("показывает данные, версию данных и разрешение сетки", async () => {
     render(<MapExplorer styleUrl="style.json" />);
 
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     const map = await screen.findByTestId("map");
-    expect(map.textContent).toContain("features=1");
+    expect(map.textContent).toContain("cells=1");
     expect(screen.getByTestId("data-version").textContent).toContain("27.09.2026");
     expect(screen.getByTestId("resolution").textContent).toContain("res 9");
     expect(screen.getByText("25.6 – 42.7")).toBeTruthy();
     expect(screen.getByTestId("attribution").textContent).toContain("OpenFreeMap");
   });
 
-  it("по умолчанию выбирает категорию, по которой есть данные", async () => {
+  it("по умолчанию красит карту слоем с данными: слой конкурентов и категория с объектами", async () => {
     render(<MapExplorer styleUrl="style.json" />);
 
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    expect(apiMock.fetchCells).toHaveBeenCalledWith(
-      expect.objectContaining({ city: "tomsk", category: "cafe", res: 9 }),
+    expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+      expect.objectContaining({ city: "tomsk", base: "competitors:cafe", res: 9 }),
     );
   });
 
-  it("уважает город и категорию из query-параметров", async () => {
+  it("читает базовый слой из query-параметров", async () => {
+    render(
+      <MapExplorer
+        styleUrl="style.json"
+        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", base: "population", overlays: "transport" }}
+      />,
+    );
+
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+      expect.objectContaining({ base: "population", overlays: "transport" }),
+    );
+  });
+
+  it("старая ссылка с одной категорией открывает ту же карту", async () => {
+    // Ссылки вида `?category=bar` разошлись до появления слоёв: они обязаны работать
     render(
       <MapExplorer
         styleUrl="style.json"
@@ -175,16 +253,17 @@ describe("MapExplorer", () => {
       />,
     );
 
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    expect(apiMock.fetchCells).toHaveBeenCalledWith(expect.objectContaining({ category: "bar" }));
+    expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+      expect.objectContaining({ base: "competitors:bar" }),
+    );
   });
 
   it("показывает честное состояние «нет данных» вместо пустой карты", async () => {
-    apiMock.fetchCells.mockResolvedValue({
-      ...CELLS,
-      features: [],
-      meta: { ...CELLS.meta, non_empty_count: 0, poi_count: 0, density_breaks: [0, 0, 0, 0, 0] },
+    apiMock.fetchLayerGrid.mockResolvedValue({
+      ...GRID,
+      layers: [{ ...GRID.layers[0], values: [0], non_empty_count: 0, max_value: 0, breaks: [0, 0, 0, 0, 0] }],
     });
 
     render(<MapExplorer styleUrl="style.json" />);
@@ -194,7 +273,7 @@ describe("MapExplorer", () => {
   });
 
   it("показывает ошибку API и умеет повторить запрос", async () => {
-    apiMock.fetchCells.mockRejectedValue(
+    apiMock.fetchLayerGrid.mockRejectedValue(
       new ApiError(500, "Сервис недоступен", "внутренняя ошибка"),
     );
 
@@ -203,14 +282,14 @@ describe("MapExplorer", () => {
     const errorCard = await screen.findByTestId("error");
     expect(errorCard.textContent).toContain("Сервис недоступен");
 
-    const callsBefore = apiMock.fetchCells.mock.calls.length;
+    const callsBefore = apiMock.fetchLayerGrid.mock.calls.length;
     screen.getByRole("button", { name: "Повторить" }).click();
 
-    await waitFor(() => expect(apiMock.fetchCells.mock.calls.length).toBeGreaterThan(callsBefore));
+    await waitFor(() => expect(apiMock.fetchLayerGrid.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 
   it("для 503 показывает человеческое объяснение, а не техническую ошибку", async () => {
-    apiMock.fetchCells.mockRejectedValue(
+    apiMock.fetchLayerGrid.mockRejectedValue(
       new ApiError(503, "Сервис недоступен", "нет собранной сетки"),
     );
 
@@ -225,7 +304,7 @@ describe("MapExplorer", () => {
   });
 
   it("при потере связи подсказывает проверить интернет", async () => {
-    apiMock.fetchCells.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
+    apiMock.fetchLayerGrid.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
 
     render(<MapExplorer styleUrl="style.json" />);
 
@@ -235,22 +314,22 @@ describe("MapExplorer", () => {
 
   it("при потере связи показывает последние загруженные данные и баннер офлайн-режима", async () => {
     // Кэш как после успешной загрузки: сетка уже была получена
-    saveCells(cellsCacheKey("tomsk", "cafe", 9), CELLS);
-    apiMock.fetchCells.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
+    saveGrid(gridCacheKey("tomsk", "competitors:cafe", "", 9), GRID);
+    apiMock.fetchLayerGrid.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
 
     render(<MapExplorer styleUrl="style.json" />);
 
     const offline = await screen.findByTestId("offline");
     expect(offline.textContent).toContain("Нет связи с сервисом");
     const map = await screen.findByTestId("map");
-    expect(map.textContent).toContain("features=1");
+    expect(map.textContent).toContain("cells=1");
     // Карточки ошибки нет: данные показываем, о проблеме сообщает баннер
     expect(screen.queryByTestId("error")).toBeNull();
   });
 
   it("клик по ячейке открывает список объектов и попадает в адресную строку", async () => {
     render(<MapExplorer styleUrl="style.json" />);
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("click-cell").click();
 
@@ -265,13 +344,14 @@ describe("MapExplorer", () => {
     });
     expect(screen.getByTestId("selected-cell").textContent).toBe("890b80db643ffff");
     await waitFor(() => expect(window.location.search).toContain("cell=890b80db643ffff"));
-    expect(window.location.search).toContain("city=tomsk");
+    // Слой и его категория: ссылку читают и новые клиенты, и старые (см. urlState)
+    expect(window.location.search).toContain("base=competitors:cafe");
     expect(window.location.search).toContain("category=cafe");
   });
 
   it("клик по ячейке другого разрешения запрашивает объекты с разрешением самой ячейки", async () => {
     render(<MapExplorer styleUrl="style.json" />);
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     // Сразу после смены разрешения по зуму состояние уже res 9, а отрисован ещё обзорный слой:
     // запрос со «своим» res давал 404 — разрешение обязано следовать за ячейкой
@@ -286,9 +366,9 @@ describe("MapExplorer", () => {
     });
   });
 
-  it("смена города или категории закрывает список объектов прежней ячейки", async () => {
+  it("смена категории закрывает список объектов прежней ячейки", async () => {
     render(<MapExplorer styleUrl="style.json" />);
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("click-cell").click();
     await screen.findByTestId("poi-panel");
@@ -302,6 +382,49 @@ describe("MapExplorer", () => {
     expect(window.location.search).not.toContain("cell=");
   });
 
+  it("включение наложения меняет запрос и попадает в ссылку", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("overlay-transport"));
+
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+        expect.objectContaining({ base: "competitors:cafe", overlays: "transport" }),
+      ),
+    );
+    expect(window.location.search).toContain("overlays=transport");
+  });
+
+  it("третье наложение включить нельзя — панель объясняет ограничение", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("overlay-transport"));
+    fireEvent.click(screen.getByTestId("overlay-population"));
+    await waitFor(() => expect(window.location.search).toContain("overlays=transport,population"));
+
+    // Лимит ADR 0013: два наложения — предел читаемости карты
+    expect((screen.getByTestId("overlay-pedestrian") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText("сначала снимите другое наложение")).toBeTruthy();
+  });
+
+  it("базовый слой можно переключить: карту красит выбранный слой", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("base-population"));
+
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
+        expect.objectContaining({ base: "population" }),
+      ),
+    );
+    expect(window.location.search).toContain("base=population");
+    // У слоя населения нет вариантов: категория из ссылки уходит, иначе она вводила бы в заблуждение
+    expect(window.location.search).not.toContain("category=");
+  });
+
   it("кнопка «Поделиться» копирует ссылку на текущий вид", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
@@ -310,7 +433,7 @@ describe("MapExplorer", () => {
     });
 
     render(<MapExplorer styleUrl="style.json" />);
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("share").click();
 
@@ -320,7 +443,7 @@ describe("MapExplorer", () => {
     expect(status.textContent).toContain("ссылка скопирована");
   });
 
-  it("по кнопке CSV выгружает сетку с индексом H3, количеством и плотностью", async () => {
+  it("по кнопке CSV выгружает сетку с колонками активных слоёв", async () => {
     const blobs: Blob[] = [];
     const created: HTMLAnchorElement[] = [];
     Object.defineProperty(URL, "createObjectURL", {
@@ -338,7 +461,7 @@ describe("MapExplorer", () => {
       });
 
     render(<MapExplorer styleUrl="style.json" />);
-    await waitFor(() => expect(apiMock.fetchCells).toHaveBeenCalled());
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     // CSV живёт в меню «Экспорт» — сначала раскрываем его (дизайн-спека §4.9)
     fireEvent.click(screen.getByTestId("export"));
@@ -346,10 +469,10 @@ describe("MapExplorer", () => {
 
     await waitFor(() => expect(blobs).toHaveLength(1));
     const text = await blobs[0].text();
-    // Атрибуция в экспортe обязательна (ODbL), поэтому CSV начинается строкой-комментарием
+    // Атрибуция в экспорте обязательна (ODbL), поэтому CSV начинается строкой-комментарием
     expect(text).toContain("OpenStreetMap contributors");
-    expect(text).toContain("h3,count,density_poi_per_km2");
-    expect(text).toContain("890b80db643ffff,2,17.1");
+    expect(text).toContain("h3,competitors_cafe_value,competitors_cafe_count,lat,lon");
+    expect(text).toContain("890b80db643ffff,17.1,2,");
     expect(created[0].download).toBe("geopuls-томск-res9.csv");
 
     clickSpy.mockRestore();

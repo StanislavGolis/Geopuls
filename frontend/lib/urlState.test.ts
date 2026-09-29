@@ -92,6 +92,8 @@ describe("buildSearch", () => {
     const original = {
       city: "tomsk",
       category: "cafe",
+      base: "competitors:cafe",
+      overlays: "population,transport",
       cell: CELL,
       res: 9 as const,
       zoom: 13,
@@ -99,6 +101,19 @@ describe("buildSearch", () => {
     };
 
     expect(parseUrlState(buildSearch(original))).toEqual(original);
+  });
+
+  it("читает базовый слой и наложения из ссылки", () => {
+    const state = parseUrlState("?city=tomsk&base=competitors:cafe&overlays=population,transport");
+
+    expect(state.base).toBe("competitors:cafe");
+    expect(state.overlays).toBe("population,transport");
+  });
+
+  it("пишет базовый слой рядом с категорией: старые клиенты читают ссылку по-прежнему", () => {
+    const search = buildSearch({ city: "tomsk", category: "cafe", base: "competitors:cafe", overlays: "population" });
+
+    expect(search).toBe("city=tomsk&category=cafe&base=competitors:cafe&overlays=population");
   });
 
   it("не пишет центр без зума", () => {

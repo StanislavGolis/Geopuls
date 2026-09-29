@@ -8,6 +8,8 @@
  * цветов из рэмпа, поэтому переход с 4 на 5–6 классов не требует правок раскраски.
  */
 
+import { formatLayerValue } from "@/lib/layers";
+
 /** Шесть ступеней рэмпа YlOrRd: от «мало» к «много». */
 export const HEAT_RAMP = [
   "#FEF3C7",
@@ -88,8 +90,7 @@ export type LegendItem = {
 };
 
 export function formatDensity(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return formatLayerValue(value, null, 1);
 }
 
 /**
@@ -136,12 +137,16 @@ export function legendItems(breaks: number[] | null | undefined): LegendItem[] {
 }
 
 /**
- * Выражение раскраски для MapLibre: нулевой класс — отдельный цвет, остальные — ступени
- * по плотности. Возвращается структура вида
- * `["case", ["==", ["get","count"], 0], ZERO, ["step", ["get","density"], c0, b1, c1, …]]`.
+ * Выражение раскраски для MapLibre: нулевой класс — отдельный цвет, остальные — ступени по значению
+ * метрики. Возвращается структура вида
+ * `["case", ["<=", ["get","value"], 0], ZERO, ["step", ["get","value"], c0, b1, c1, …]]`.
  *
- * Порядок элементов `step` важен: сначала цвет самого нижнего класса, затем пары
- * «граница — цвет» для остальных классов.
+ * Порядок элементов `step` важен: сначала цвет самого нижнего класса, затем пары «граница — цвет» для
+ * остальных классов.
+ *
+ * «Пусто» определяется по значению метрики, а не по числу объектов: базовым слоем может быть не
+ * только слой конкурентов (например, доля жилой застройки), а ноль означает «здесь ничего нет» для
+ * любого типа метрики.
  */
 export function heatColorExpression(breaks: number[] | null | undefined): unknown {
   if (!breaks || breaks.length < 2) {
@@ -149,27 +154,32 @@ export function heatColorExpression(breaks: number[] | null | undefined): unknow
   }
 
   const colors = heatColors(breaks.length - 1);
-  const step: unknown[] = ["step", ["get", "density"], colors[0]];
+  const step: unknown[] = ["step", ["get", "value"], colors[0]];
   for (let index = 1; index < colors.length; index += 1) {
     step.push(breaks[index], colors[index]);
   }
 
-  return ["case", ["==", ["get", "count"], 0], ZERO_COLOR, step];
+  return ["case", ["<=", ["get", "value"], 0], ZERO_COLOR, step];
 }
 
 /** Прозрачность ячеек: подложка должна читаться сквозь тепловой слой, поэтому пустые ячейки почти прозрачны. */
 export function heatFillOpacityExpression(): unknown {
-  return ["case", ["==", ["get", "count"], 0], EMPTY_FILL_OPACITY, FILLED_FILL_OPACITY];
+  return ["case", ["<=", ["get", "value"], 0], EMPTY_FILL_OPACITY, FILLED_FILL_OPACITY];
 }
 
 /** Цвет контура: у пустых — свой (смысловой), у непустых — мягкий белый. */
 export function heatOutlineColorExpression(): unknown {
-  return [
-    "case",
-    ["==", ["get", "count"], 0],
-    EMPTY_CELL_STROKE,
-    "rgba(255, 255, 255, 0.45)",
-  ];
+  return ["case", ["<=", ["get", "value"], 0], EMPTY_CELL_STROKE, "rgba(255, 255, 255, 0.45)"];
+}
+
+/**
+ * Наложение рисуется контуром цвета слоя там, где у слоя есть значение.
+ *
+ * Нули и `null` (нет данных) остаются прозрачными: наложение показывает присутствие явления, а не
+ * закрашивает карту вторым тепловым слоем — две заливки друг поверх друга нечитаемы (ADR 0013).
+ */
+export function overlayOutlineColorExpression(property: string, color: string): unknown {
+  return ["case", [">", ["get", property], 0], color, "rgba(255, 255, 255, 0)"];
 }
 
 /** Разрешение H3 по зуму карты: обзор города — 8, улицы — 9 (раздел 4.3 ТЗ). */

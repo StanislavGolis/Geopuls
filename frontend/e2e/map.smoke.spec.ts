@@ -206,27 +206,29 @@ async function nonEmptyCells(
   limit = 25,
 ): Promise<{ h3: string; count: number; lat: number; lon: number }[]> {
   const apiBase = process.env.GEOPULS_API_URL ?? "http://127.0.0.1:8000";
-  const response = await request.get(`${apiBase}/api/v1/cells?city=tomsk&category=cafe&res=${res}`);
+  const response = await request.get(
+    `${apiBase}/api/v1/map?city=tomsk&base=competitors:cafe&res=${res}`,
+  );
   expect(response.ok()).toBe(true);
 
+  // Колоночный ответ: геометрия отдельно, значения — колонками по слоям (ADR 0013)
   const body = (await response.json()) as {
-    features: {
-      id: string;
-      properties: { count: number };
-      geometry: { coordinates: number[][][] };
-    }[];
+    cells: { h3: string[]; geometry: number[][][] };
+    layers: { role: string; extras: Record<string, (number | null)[]> }[];
   };
+  const base = body.layers.find((column) => column.role === "base");
+  const counts = base?.extras.count ?? [];
 
-  return body.features
-    .filter((feature) => feature.properties.count > 0)
-    .sort((left, right) => right.properties.count - left.properties.count)
-    .slice(0, limit)
-    .map((feature) => {
-      const ring = feature.geometry.coordinates[0].slice(0, -1);
+  return body.cells.h3
+    .map((h3, index) => {
+      const ring = body.cells.geometry[index].slice(0, -1);
       const lon = ring.reduce((sum, point) => sum + point[0], 0) / ring.length;
       const lat = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
-      return { h3: feature.id, count: feature.properties.count, lat, lon };
-    });
+      return { h3, count: Number(counts[index] ?? 0), lat, lon };
+    })
+    .filter((cell) => cell.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, limit);
 }
 
 /** Самая плотная ячейка: нужна там, где кликать не требуется (проверка ссылки). */
@@ -445,7 +447,7 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
     (await page.getByTestId("resolution").textContent())?.match(/res (\d)/)?.[1] ?? 9,
   );
   const grid = await request.get(
-    `${apiBase}/api/v1/cells?city=tomsk&category=cafe&res=${resolution}`,
+    `${apiBase}/api/v1/map?city=tomsk&base=competitors:cafe&res=${resolution}`,
   );
   const gridBody = (await grid.json()) as { meta: { cell_count: number } };
 
@@ -454,7 +456,8 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   // Атрибуция обязательна и в экспорте (ODbL): первая строка — комментарий с источником
   expect(lines[0]).toContain("OpenStreetMap contributors");
   expect(lines[0]).toContain("ГЕОПУЛЬС");
-  expect(lines[1]).toBe("h3,count,density_poi_per_km2,has_address_ratio,lat,lon");
+  // Колонки собраны из активных слоёв: базовый слой с вариантом и дополнительным показателем
+  expect(lines[1]).toBe("h3,competitors_cafe_value,competitors_cafe_count,lat,lon");
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
   expect(lines.length).toBe(gridBody.meta.cell_count + 2);
 });
@@ -514,6 +517,26 @@ test("тепловой слой не скрывает подложку: зали
   expect(empties).toBeLessThan(filled);
 });
 
+test("панель слоёв говорит, чем красится карта, и попадает в ссылку", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Панель строится из реестра слоёв: базовый слой выбран, его вариант подписан
+  const panel = page.getByLabel("Слои карты");
+  await expect(panel).toBeVisible();
+  await expect(page.getByTestId("base-competitors")).toBeChecked();
+  await expect(page.getByLabel("Категория слоя Конкуренты (объекты по категориям)")).toBeVisible();
+
+  // Ссылку собирает сама карта: набор слоёв должен быть в адресе, иначе им нельзя поделиться
+  await expect(page).toHaveURL(/base=competitors(:|%3A)cafe/);
+  // Источник с лицензией виден в панели: слой без атрибуции показывать нельзя
+  await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
@@ -557,13 +580,16 @@ test("мобильная вёрстка: чипы категорий, свёрн
   await expect(page.getByTestId("chip-cafe")).toBeVisible();
   await expect(page.getByLabel("Категория")).toBeHidden();
 
+  // Панель слоёв на телефоне свёрнута в кнопку — как и легенда
+  await expect(page.getByRole("button", { name: /Слои/ })).toBeVisible();
+
   // Легенда свёрнута в кнопку: тело скрыто, пока не раскрыли (дизайн-спека §6)
   const toggle = page.getByRole("button", { name: /Легенда/ });
   await expect(toggle).toBeVisible();
-  await expect(page.getByText("Плотность, POI / км²")).toBeHidden();
+  await expect(page.getByText("Плотность, POI/км²")).toBeHidden();
 
   await toggle.click();
-  await expect(page.getByText("Плотность, POI / км²")).toBeVisible();
+  await expect(page.getByText("Плотность, POI/км²")).toBeVisible();
   await expect(page.getByText("пусто")).toBeVisible();
 
   // Кнопки действий на телефоне — только иконки

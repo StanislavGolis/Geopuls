@@ -9,7 +9,12 @@
 
 export type UrlState = {
   city: string | null;
+  /** Вариант базового слоя: в ссылке повторяется как `category` (совместимость со старыми ссылками). */
   category: string | null;
+  /** Базовый слой (красит карту): `slug` или `slug:category` (ADR 0013). */
+  base: string | null;
+  /** Наложения через запятую: не больше двух (ADR 0013). */
+  overlays: string | null;
   /** H3-индекс выбранной ячейки. */
   cell: string | null;
   res: 8 | 9 | null;
@@ -24,6 +29,8 @@ const MAX_ZOOM = 22;
 export const EMPTY_URL_STATE: UrlState = {
   city: null,
   category: null,
+  base: null,
+  overlays: null,
   cell: null,
   res: null,
   zoom: null,
@@ -79,6 +86,10 @@ export function parseUrlState(source: string | Record<string, string | string[] 
 
   const city = parseString(params.get("city"));
   const category = parseString(params.get("category"));
+  // Базовый слой и наложения — «слои» (ADR 0013). `category` остаётся ради старых ссылок: те, что
+  // уже разошлись по людям, должны продолжать открывать ту же карту.
+  const base = parseString(params.get("base"));
+  const overlays = parseString(params.get("overlays"));
   const cell = parseH3Cell(params.get("cell"));
   const zoom = parseZoom(params.get("zoom"));
   const res = zoom !== null ? resolutionFromZoom(zoom) : parseResolution(params.get("res"));
@@ -86,6 +97,8 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   return {
     city,
     category,
+    base,
+    overlays,
     cell,
     res,
     zoom,
@@ -94,9 +107,9 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   };
 }
 
-/** Кодирование значения для ссылки: запятую оставляем читаемой (`center=56.47,85.02`). */
+/** Кодирование значения для ссылки: запятая и двоеточие остаются читаемыми (`base=competitors:cafe`). */
 function encodeValue(value: string): string {
-  return encodeURIComponent(value).replace(/%2C/gi, ",");
+  return encodeURIComponent(value).replace(/%(2C|3A)/gi, (match) => decodeURIComponent(match));
 }
 
 /** Собрать query-строку без незначимых параметров (порядок стабилен — удобно для тестов). */
@@ -106,10 +119,16 @@ export function buildSearch(state: Partial<UrlState>): string {
 
   const city = parseString(state.city);
   const category = parseString(state.category);
+  const base = parseString(state.base);
+  const overlays = parseString(state.overlays);
   const cell = parseH3Cell(state.cell);
 
   if (city) push("city", city);
+  // `category` идёт рядом с `base` осознанно: так ссылка читается и старыми клиентами, и новыми
+  // (вызывающий код передаёт `category` только для слоя, у которого есть категории)
   if (category) push("category", category);
+  if (base) push("base", base);
+  if (overlays) push("overlays", overlays);
   if (cell) push("cell", cell);
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {

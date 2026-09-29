@@ -194,3 +194,62 @@ class CellProfileResponse(BaseModel):
 
     metrics: list[CellMetricOut]
     meta: CellProfileMeta
+
+
+class MapLayerColumn(BaseModel):
+    """Один слой в колоночном ответе: массив значений, выровненный с ``cells.h3``.
+
+    ``values[i] is None`` означает «у слоя нет значения для этой ячейки» (слой собран не по всей
+    сетке). Это честнее нуля: ноль утверждает «объектов нет», ``None`` — «мы не знаем».
+    """
+
+    slug: str
+    name: str
+    category: str | None = None
+    role: Literal["base", "overlay"]
+    metric_kind: str
+    unit: str | None = None
+    scale: str
+    color: str
+    values: list[float | None]
+    extras: dict[str, list[float | None]] = Field(default_factory=dict)
+    covered_count: int
+    non_empty_count: int
+    total_value: float
+    max_value: float
+    breaks: list[float]
+    source: LayerSourceOut | None = None
+
+
+class MapCellsOut(BaseModel):
+    """Колоночный набор ячеек: H3-индекс и геометрия — один раз на весь набор слоёв (ADR 0013).
+
+    Полигон ячейки от слоя не зависит, поэтому хранится в ответе в единственном экземпляре: именно
+    на этом колоночный формат и экономит (геометрия — самое дорогое в ответе).
+    """
+
+    h3: list[str]
+    geometry: list[list[list[float]]]
+
+
+class MapMeta(BaseModel):
+    """Метаданные колоночной карты: что запрошено, по какому снимку данных и из каких источников."""
+
+    city: str
+    res: int
+    cell_count: int
+    base: str
+    overlays: list[str] = Field(default_factory=list)
+    data_version: str | None = None
+    updated_at: datetime | None = None
+    bbox_filter: str | None = None
+    sources: list[LayerSourceOut] = Field(default_factory=list)
+
+
+class MapResponse(BaseModel):
+    """Карта целиком: колонки ячеек и значения всех запрошенных слоёв одним ответом."""
+
+    type: Literal["LayerGrid"] = "LayerGrid"
+    cells: MapCellsOut
+    layers: list[MapLayerColumn]
+    meta: MapMeta

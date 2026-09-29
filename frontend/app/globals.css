@@ -347,6 +347,28 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.legend__layer-name {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.legend__subtitle {
+  margin: 10px 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Наложение рисуется контуром: и в легенде это контур, а не заливка (ADR 0013) */
+.legend__swatch--outline {
+  background: transparent;
+  border-width: 2px;
+}
+
 .legend__list {
   display: flex;
   flex-direction: column;
@@ -666,6 +688,115 @@ button:disabled {
   background: var(--accent-hover);
 }
 
+/* ── Панель слоёв: слева сверху, легенда остаётся внизу (§4.11) ────────────── */
+.layers {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 6;
+  width: 260px;
+  max-height: calc(100% - 120px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-raised);
+  font-size: 12px;
+}
+
+.layers__toggle {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.layers__group {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.layers__title {
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.layers__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.layers__option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.layers__option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Вариант слоя (категория) занимает свою строку: иначе подпись слоя ужимается в точку */
+.layers__variant {
+  flex: 1 0 100%;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.layers__note {
+  flex: 1 0 100%;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.layers__source {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.layers__source-name {
+  display: block;
+  color: var(--text-primary);
+}
+
+.layers__source-meta,
+.layers__attribution {
+  display: block;
+  color: var(--text-muted);
+}
+
+.layers__warning {
+  display: block;
+  color: var(--warning-text);
+}
+
 /* ── Мобильная версия (§6) ─────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   :root {
@@ -724,6 +855,28 @@ button:disabled {
     display: none;
   }
 
+  /* Панель слоёв на телефоне — сворачивающаяся кнопка в левом верхнем углу */
+  .layers {
+    left: 8px;
+    top: 8px;
+    width: min(260px, calc(100% - 16px));
+    max-height: calc(100% - 200px);
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .layers__toggle {
+    display: inline-flex;
+  }
+
+  .layers--collapsed {
+    padding: 0;
+  }
+
+  .layers--collapsed .layers__body {
+    display: none;
+  }
+
   .skeleton__hex,
   .skeleton__hex--mid {
     width: 30px;
@@ -756,6 +909,10 @@ button:disabled {
 /* На широком экране легенда всегда раскрыта, кнопка-переключатель не нужна */
 @media (min-width: 641px) {
   .legend__body {
+    display: block;
+  }
+
+  .layers__body {
     display: block;
   }
 }

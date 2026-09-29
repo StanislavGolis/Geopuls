@@ -49,6 +49,10 @@ ORDER BY l.sort_order, l.slug
 
 LAYER_SQL = LAYERS_SQL.replace("WHERE l.is_active", "WHERE l.is_active AND l.slug = :layer")
 
+LAYERS_BY_SLUGS_SQL = LAYERS_SQL.replace(
+    "WHERE l.is_active", "WHERE l.is_active AND l.slug = ANY(CAST(:layers AS text[]))"
+)
+
 LAYER_CATEGORIES_SQL = """
 SELECT l.slug AS layer, c.slug AS category
 FROM categories c JOIN layers l ON l.id = c.layer_id
@@ -125,6 +129,41 @@ async def require_layer(session: AsyncSession, slug: str) -> dict[str, Any]:
     if row is None:
         raise ProblemException(404, f"Слой не найден: {slug}")
     return dict(row)
+
+
+async def load_layers(session: AsyncSession, slugs: list[str]) -> dict[str, dict[str, Any]]:
+    """Слои по списку slug: один запрос на весь набор.
+
+    Нужен там, где карта запрашивает сразу несколько слоёв (базовый и наложения): реестр слоёв не
+    должен превращаться в N обращений к БД.
+    """
+    if not slugs:
+        return {}
+    rows = (await session.execute(text(LAYERS_BY_SLUGS_SQL), {"layers": slugs})).mappings().all()
+    return {row["slug"]: dict(row) for row in rows}
+
+
+async def require_layer_variant(
+    session: AsyncSession,
+    layer: dict[str, Any],
+    category: str | None,
+    categories_by_layer: dict[str, list[str]],
+) -> None:
+    """Проверить, что вариант слоя указан правильно и существует.
+
+    Правило одно для всех эндпоинтов слоёв: слой с категориями требует категорию (иначе на одну
+    ячейку пришлось бы несколько значений), слой без категорий её запрещает.
+    """
+    slug = str(layer["slug"])
+    layer_categories = categories_by_layer.get(slug, [])
+    if layer_categories and category is None:
+        raise ProblemException(
+            400, f"Слой {slug} состоит из категорий — укажите category ({', '.join(layer_categories)})"
+        )
+    if category is not None:
+        if not layer_categories:
+            raise ProblemException(400, f"Слой {slug} не делится на категории")
+        await require_layer_category(session, slug, category)
 
 
 async def require_layer_category(session: AsyncSession, layer_slug: str, category: str) -> str:
@@ -211,15 +250,7 @@ async def get_layer_cells(
     """
     await require_city(session, city)
     layer = await require_layer(session, slug)
-    layer_categories = (await load_categories_by_layer(session)).get(slug, [])
-    if layer_categories and category is None:
-        raise ProblemException(
-            400, f"Слой {slug} состоит из категорий — укажите category ({', '.join(layer_categories)})"
-        )
-    if category is not None:
-        if not layer_categories:
-            raise ProblemException(400, f"Слой {slug} не делится на категории")
-        await require_layer_category(session, slug, category)
+    await require_layer_variant(session, layer, category, await load_categories_by_layer(session))
 
     min_lon = min_lat = max_lon = max_lat = 0.0
     use_bbox = False

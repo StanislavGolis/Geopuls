@@ -13,6 +13,7 @@ import {
   heatFillOpacityExpression,
   heatOutlineColorExpression,
   legendItems,
+  overlayOutlineColorExpression,
   rampIndexes,
   resolutionOfCell,
   resolutionForZoom,
@@ -95,16 +96,17 @@ describe("heatColorExpression", () => {
     const expression = heatColorExpression(BREAKS) as unknown[];
 
     expect(expression[0]).toBe("case");
-    expect(expression[1]).toEqual(["==", ["get", "count"], 0]);
+    expect(expression[1]).toEqual(["<=", ["get", "value"], 0]);
     expect(expression[2]).toBe(ZERO_COLOR);
   });
 
-  it("остальные ячейки раскрашиваются ступенями по плотности", () => {
+  it("остальные ячейки раскрашиваются ступенями по значению метрики", () => {
     const expression = heatColorExpression(BREAKS) as unknown[];
     const [, , , step] = expression as [string, unknown, string, unknown[]];
 
     expect(step[0]).toBe("step");
-    expect(step[1]).toEqual(["get", "density"]);
+    // Значение метрики, а не число объектов: базовым слоем может быть не только слой конкурентов
+    expect(step[1]).toEqual(["get", "value"]);
     expect(step[2]).toBe(heatColors(4)[0]);
     expect(step[3]).toBe(25.6);
     expect(step[4]).toBe(heatColors(4)[1]);
@@ -121,7 +123,7 @@ describe("правила отрисовки ячеек", () => {
   it("пустые ячейки почти прозрачны, непустые — полупрозрачны, чтобы подложка читалась", () => {
     expect(heatFillOpacityExpression()).toEqual([
       "case",
-      ["==", ["get", "count"], 0],
+      ["<=", ["get", "value"], 0],
       EMPTY_FILL_OPACITY,
       FILLED_FILL_OPACITY,
     ]);
@@ -132,10 +134,20 @@ describe("правила отрисовки ячеек", () => {
   it("смысл пустой ячейки несёт обводка, а не заливка", () => {
     expect(heatOutlineColorExpression()).toEqual([
       "case",
-      ["==", ["get", "count"], 0],
+      ["<=", ["get", "value"], 0],
       EMPTY_CELL_STROKE,
       "rgba(255, 255, 255, 0.45)",
     ]);
+  });
+
+  it("наложение рисуется цветом слоя только там, где значение есть", () => {
+    const expression = overlayOutlineColorExpression("layer_population", "#334155") as unknown[];
+
+    expect(expression[0]).toBe("case");
+    // Ноль и null (нет данных) остаются прозрачными: вторым тепловым слоем карту не закрашиваем
+    expect(expression[1]).toEqual([">", ["get", "layer_population"], 0]);
+    expect(expression[2]).toBe("#334155");
+    expect(expression[3]).toBe("rgba(255, 255, 255, 0)");
   });
 });
 

@@ -120,6 +120,90 @@ export type CellsQuery = {
   bbox?: string;
 };
 
+/**
+ * Источник данных слоя: лицензия и атрибуция нужны и на экране, и в экспорте (ADR 0013).
+ */
+export type LayerSource = {
+  slug: string;
+  title: string;
+  license: string | null;
+  license_url: string | null;
+  attribution_text: string | null;
+  citation: string | null;
+  source_url: string | null;
+  data_version: string | null;
+};
+
+/** Слой в реестре: чем измеряется, в каких единицах и может ли красить карту. */
+export type LayerMeta = {
+  slug: string;
+  name: string;
+  kind: string;
+  metric_kind: string;
+  unit: string | null;
+  scale: string;
+  color: string;
+  can_be_base: boolean;
+  categories: string[];
+  source: LayerSource | null;
+};
+
+export type LayersResponse = {
+  layers: LayerMeta[];
+  data_version: string | null;
+};
+
+/**
+ * Колонка значений слоя: массив выровнен с `LayerGrid.cells.h3`.
+ *
+ * `values[i] === null` означает «у слоя нет значения для этой ячейки» (слой собран не по всей
+ * сетке) — это не то же самое, что ноль («объектов нет»).
+ */
+export type MapLayerColumn = {
+  slug: string;
+  name: string;
+  category: string | null;
+  role: "base" | "overlay";
+  metric_kind: string;
+  unit: string | null;
+  scale: string;
+  color: string;
+  values: (number | null)[];
+  extras: Record<string, (number | null)[]>;
+  covered_count: number;
+  non_empty_count: number;
+  total_value: number;
+  max_value: number;
+  breaks: number[];
+  source: LayerSource | null;
+};
+
+/** Колоночный ответ карты: геометрия один раз, значения — колонками по слоям (ADR 0013). */
+export type LayerGrid = {
+  type: "LayerGrid";
+  cells: { h3: string[]; geometry: number[][][] };
+  layers: MapLayerColumn[];
+  meta: {
+    city: string;
+    res: number;
+    cell_count: number;
+    base: string;
+    overlays: string[];
+    data_version: string | null;
+    updated_at: string | null;
+    bbox_filter: string | null;
+    sources: LayerSource[];
+  };
+};
+
+export type LayerGridQuery = {
+  city: string;
+  base: string;
+  res: number;
+  overlays?: string;
+  bbox?: string;
+};
+
 export type PoiItem = {
   osm_type: string;
   osm_id: number;
@@ -222,6 +306,26 @@ export function fetchCells(query: CellsQuery): Promise<CellsResponse> {
     city: query.city,
     category: query.category,
     res: query.res,
+    bbox: query.bbox,
+  });
+}
+
+/** Реестр слоёв: из него строится панель слоёв (что измеряет слой и может ли он красить карту). */
+export function fetchLayers(city?: string): Promise<LayersResponse> {
+  return requestJson<LayersResponse>("/api/v1/layers", { city });
+}
+
+/**
+ * Колоночная карта: базовый слой плюс наложения одним запросом (ADR 0013).
+ *
+ * Один запрос вместо запроса на слой: геометрия сетки приходит один раз, а значения — колонками.
+ */
+export function fetchLayerGrid(query: LayerGridQuery): Promise<LayerGrid> {
+  return requestJson<LayerGrid>("/api/v1/map", {
+    city: query.city,
+    base: query.base,
+    res: query.res,
+    overlays: query.overlays,
     bbox: query.bbox,
   });
 }

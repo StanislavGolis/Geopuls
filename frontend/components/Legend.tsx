@@ -5,28 +5,49 @@ import { useState } from "react";
 
 import { pluralObjects } from "@/lib/format";
 import { legendItems } from "@/lib/heat";
+import { metricLabel, type LayerLegend } from "@/lib/layers";
 
-export type LegendProps = {
-  /** Границы классов из `meta.density_breaks` (считает бэкенд). */
-  breaks: number[] | null | undefined;
-  /** Разрешение текущей сетки — показываем в легенде, а не в шапке. */
-  res?: number;
-  /** Сколько объектов найдено в городе: для счётчика и пометки «мало данных». */
-  poiCount?: number;
-  /** Порог, ниже которого честно предупреждаем о неполноте данных. */
-  thinDataThreshold?: number;
+/** Наложение в легенде: цвет контура на карте должен быть объяснён, вместе с охватом. */
+export type LegendOverlay = {
+  slug: string;
+  name: string;
+  color: string;
+  /** Сколько ячеек закрашено контуром: «есть на карте» без числа — не информация. */
+  nonEmptyCount: number;
 };
 
-export default function Legend({ breaks, res, poiCount, thinDataThreshold = 30 }: LegendProps) {
+export type LegendProps = {
+  /** Базовый слой: его значениями раскрашена карта (null — данные ещё не приехали). */
+  layer: LayerLegend | null;
+  /** Наложения: показываем цвет контура и охват, иначе контуры на карте не с чем соотнести. */
+  overlays?: LegendOverlay[];
+  /** Разрешение текущей сетки — показываем в легенде, а не в шапке. */
+  res?: number;
+  /** Порог, ниже которого честно предупреждаем о неполноте данных. */
+  thinDataThreshold?: number;
+  /** Базовый слой собран не по всей сетке: это нужно сказать прямо. */
+  partialCoverage?: boolean;
+};
+
+export default function Legend({
+  layer,
+  overlays = [],
+  res,
+  thinDataThreshold = 30,
+  partialCoverage = false,
+}: LegendProps) {
   const [expanded, setExpanded] = useState(false);
-  const items = legendItems(breaks);
-  const isThin = typeof poiCount === "number" && poiCount > 0 && poiCount < thinDataThreshold;
-  const showCount = typeof poiCount === "number" && poiCount >= 0;
+  const items = legendItems(layer?.breaks ?? null);
+  const objectCount = layer?.objectCount ?? null;
+  const isThin = objectCount !== null && objectCount > 0 && objectCount < thinDataThreshold;
+  const title = layer
+    ? `${metricLabel(layer.metricKind)}${layer.unit ? `, ${layer.unit}` : ""}`
+    : "Легенда";
 
   return (
     <section
       className={`legend legend--${expanded ? "expanded" : "collapsed"}`}
-      aria-label="Легенда плотности объектов"
+      aria-label="Легенда карты"
     >
       {/* На мобильном легенда свёрнута в кнопку; на десктопе кнопка скрыта стилями */}
       <button
@@ -40,7 +61,8 @@ export default function Legend({ breaks, res, poiCount, thinDataThreshold = 30 }
       </button>
 
       <div className="legend__body">
-        <h2 className="legend__title">Плотность, POI / км²</h2>
+        <h2 className="legend__title">{title}</h2>
+        {layer && <p className="legend__layer-name">{layer.name}</p>}
 
         <ul className="legend__list">
           {items.map((item) => (
@@ -56,7 +78,31 @@ export default function Legend({ breaks, res, poiCount, thinDataThreshold = 30 }
           ))}
         </ul>
 
+        {overlays.length > 0 && (
+          <div className="legend__overlays" data-testid="legend-overlays">
+            <h3 className="legend__subtitle">Наложения (контур)</h3>
+            <ul className="legend__list">
+              {overlays.map((overlay) => (
+                <li className="legend__item" key={overlay.slug}>
+                  <span
+                    className="legend__swatch legend__swatch--outline"
+                    style={{ borderColor: overlay.color }}
+                    aria-hidden="true"
+                  />
+                  <span>{overlay.name}</span>
+                  <span className="legend__note">{pluralObjects(overlay.nonEmptyCount)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {isThin && <p className="legend__warning">Мало данных OSM — карта может быть неполной</p>}
+        {partialCoverage && (
+          <p className="legend__warning">
+            Слой собран не по всей сетке: «нет данных» — это не ноль
+          </p>
+        )}
 
         <p className="legend__source">
           Только объекты, размеченные в OpenStreetMap: пустая ячейка не значит, что бизнеса нет.
@@ -68,8 +114,8 @@ export default function Legend({ breaks, res, poiCount, thinDataThreshold = 30 }
               res {res}
             </span>
           )}
-          {typeof res === "number" && showCount && " · "}
-          {showCount && <span>в категории {pluralObjects(poiCount)}</span>}
+          {typeof res === "number" && objectCount !== null && " · "}
+          {objectCount !== null && <span>в слое {pluralObjects(objectCount)}</span>}
         </p>
       </div>
     </section>

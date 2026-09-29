@@ -4,6 +4,7 @@ import { Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ExportMenu from "@/components/ExportMenu";
+import LayerPanel from "@/components/LayerPanel";
 import Legend from "@/components/Legend";
 import MapSkeleton from "@/components/MapSkeleton";
 import MapView, { type MapViewHandle } from "@/components/MapView";
@@ -11,24 +12,40 @@ import PoiPanel from "@/components/PoiPanel";
 import {
   ApiError,
   type CategoryMeta,
-  type CellsResponse,
   type CityMeta,
+  type LayerGrid,
+  type LayerMeta,
   fetchCategories,
-  fetchCells,
   fetchCities,
+  fetchLayerGrid,
+  fetchLayers,
 } from "@/lib/api";
-import { cellsCacheKey, loadCells, saveCells } from "@/lib/cache";
+import { gridCacheKey, loadGrid, saveGrid } from "@/lib/cache";
 import {
-  buildCellsCsv,
   buildExportFooter,
+  buildGridCsv,
   canvasToPngWithFooter,
   downloadDataUrl,
   downloadText,
   exportFileName,
   type ExportContext,
+  type ExportLayer,
 } from "@/lib/export";
 import { formatDataVersion } from "@/lib/format";
 import { resolutionForZoom, resolutionOfCell } from "@/lib/heat";
+import {
+  MAX_OVERLAYS,
+  baseColumn,
+  isPartiallyCovered,
+  layerLegend,
+  overlayColumns,
+  parseLayerList,
+  resolveBaseLayer,
+  sameLayerRef,
+  serializeLayerList,
+  serializeLayerRef,
+  type LayerRef,
+} from "@/lib/layers";
 import { EMPTY_URL_STATE, buildSearch, type UrlState } from "@/lib/urlState";
 
 export type MapExplorerProps = {
@@ -55,10 +72,15 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   const [cities, setCities] = useState<CityMeta[]>([]);
   const [categories, setCategories] = useState<CategoryMeta[]>([]);
+  /** Реестр слоёв: из него строится панель и берутся источники с лицензиями (ADR 0013). */
+  const [layers, setLayers] = useState<LayerMeta[]>([]);
   const [citySlug, setCitySlug] = useState<string | null>(initial.city);
-  const [categorySlug, setCategorySlug] = useState<string | null>(initial.category);
+  /** Базовый слой — тот, что красит карту; вариант внутри слоя — его категория. */
+  const [baseRef, setBaseRef] = useState<LayerRef | null>(null);
+  /** Наложения: не больше двух (ADR 0013). Из ссылки берём сразу — карта должна открыться целиком. */
+  const [overlayRefs, setOverlayRefs] = useState<LayerRef[]>(() => parseLayerList(initial.overlays));
   const [res, setRes] = useState<8 | 9>(initial.res ?? DEFAULT_RES);
-  const [cells, setCells] = useState<CellsResponse | null>(null);
+  const [grid, setGrid] = useState<LayerGrid | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<ApiError | null>(null);
   const [offline, setOffline] = useState(false);
@@ -86,23 +108,37 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     [initial.zoom, initial.center],
   );
 
-  // Справочники: города и категории
+  /** Ключи слоёв для запросов и ссылок: строка стабильна и годится как зависимость эффекта. */
+  const baseKey = baseRef ? serializeLayerRef(baseRef) : null;
+  const overlaysKey = serializeLayerList(overlayRefs);
+
+  // Справочники: города, категории и реестр слоёв
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [loadedCities, loadedCategories] = await Promise.all([fetchCities(), fetchCategories()]);
+        const [loadedCities, loadedCategories, registry] = await Promise.all([
+          fetchCities(),
+          fetchCategories(),
+          fetchLayers(),
+        ]);
         if (cancelled) return;
         setCities(loadedCities);
         setCategories(loadedCategories);
+        setLayers(registry.layers);
         setCitySlug((current) => current ?? loadedCities[0]?.slug ?? null);
-        setCategorySlug((current) => {
-          if (current) return current;
-          // По умолчанию — категория, где есть данные, а не первая в списке
-          return (
-            loadedCategories.find((item) => item.poi_count > 0)?.slug ?? loadedCategories[0]?.slug ?? null
-          );
-        });
+        // Базовый слой: из ссылки, из старого `category` или первый, которым можно красить карту.
+        // Вариант по умолчанию — категория с данными, а не первая в списке: пустая карта на первом
+        // экране хуже честной подсказки о том, где данные есть
+        setBaseRef(
+          (current) =>
+            current ??
+            resolveBaseLayer(
+              registry.layers,
+              { base: initial.base, category: initial.category },
+              loadedCategories.find((item) => item.poi_count > 0)?.slug ?? null,
+            ),
+        );
       } catch (exc) {
         if (cancelled) return;
         setError(asApiError(exc));
@@ -112,41 +148,47 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initial.base, initial.category]);
 
-  // Данные теплового слоя: перезапрашиваем при смене города, категории, разрешения и по «Повторить»
+  // Данные карты: перезапрашиваем при смене города, набора слоёв, разрешения и по «Повторить»
   useEffect(() => {
-    if (!citySlug || !categorySlug) return;
+    if (!citySlug || !baseKey) return;
 
     requestRef.current?.abort();
     const controller = new AbortController();
     requestRef.current = controller;
 
     setStatus("loading");
-    const cacheKey = cellsCacheKey(citySlug, categorySlug, res);
+    const cacheKey = gridCacheKey(citySlug, baseKey, overlaysKey, res);
 
     (async () => {
       try {
-        const response = await fetchCells({ city: citySlug, category: categorySlug, res });
+        const response = await fetchLayerGrid({
+          city: citySlug,
+          base: baseKey,
+          overlays: overlaysKey || undefined,
+          res,
+        });
         if (controller.signal.aborted) return;
-        setCells(response);
+        setGrid(response);
         setError(null);
         setOffline(false);
-        setStatus(response.meta.non_empty_count > 0 ? "ready" : "empty");
+        // «Пусто» определяет базовый слой: именно он отвечает на вопрос «где нет бизнеса»
+        setStatus((baseColumn(response)?.non_empty_count ?? 0) > 0 ? "ready" : "empty");
         // Последний успешный ответ пригодится, если пропадёт связь
-        saveCells(cacheKey, response);
+        saveGrid(cacheKey, response);
       } catch (exc) {
         if (controller.signal.aborted) return;
 
         const apiError = asApiError(exc);
-        const cached = apiError.isOffline ? loadCells(cacheKey) : null;
+        const cached = apiError.isOffline ? loadGrid(cacheKey) : null;
 
         if (cached) {
           // Показываем последние загруженные данные и честный баннер вместо пустого экрана
-          setCells(cached);
+          setGrid(cached);
           setError(apiError);
           setOffline(true);
-          setStatus(cached.meta.non_empty_count > 0 ? "ready" : "empty");
+          setStatus((baseColumn(cached)?.non_empty_count ?? 0) > 0 ? "ready" : "empty");
           return;
         }
 
@@ -156,7 +198,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     })();
 
     return () => controller.abort();
-  }, [citySlug, categorySlug, res, reloadToken]);
+  }, [citySlug, baseKey, overlaysKey, res, reloadToken]);
 
   // Смена разрешения означает другую сетку: ячейку из прежней сетки больше не подсвечиваем
   useEffect(() => {
@@ -167,41 +209,72 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   // Состояние интерфейса в адресной строке: ссылкой можно поделиться (replaceState — без спама истории)
   useEffect(() => {
-    if (!citySlug || !categorySlug || typeof window === "undefined") return;
+    if (!citySlug || !baseRef || typeof window === "undefined") return;
 
     const search = buildSearch({
       city: citySlug,
-      category: categorySlug,
+      // `category` дублирует вариант базового слоя: так ссылку читают клиенты, которые про слои ещё
+      // не знают, и не ломаются уже разошедшиеся ссылки (см. lib/urlState.ts)
+      category: baseRef.category,
+      base: serializeLayerRef(baseRef),
+      overlays: overlaysKey || null,
       cell: selectedCell,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
-  }, [citySlug, categorySlug, selectedCell, res, view]);
+  }, [citySlug, baseRef, overlaysKey, selectedCell, res, view]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
-  const category = useMemo(
-    () => categories.find((item) => item.slug === categorySlug) ?? null,
-    [categories, categorySlug],
-  );
   const categoryNames = useMemo(
     () => Object.fromEntries(categories.map((item) => [item.slug, item.name])) as Record<string, string>,
     [categories],
   );
-  const exportContext = useMemo<ExportContext | null>(
-    () =>
-      city && category
-        ? {
-            cityName: city.name,
-            categoryName: category.name,
-            res,
-            dataVersion: cells?.meta.data_version ?? city.data_version,
-          }
-        : null,
-    [city, category, res, cells],
+  const baseLayer = useMemo(
+    () => layers.find((item) => item.slug === baseRef?.slug) ?? null,
+    [layers, baseRef],
   );
-  const dataVersion = cells?.meta.data_version ?? city?.data_version ?? null;
+  const baseCategory = baseRef?.category ?? null;
+  /** Варианты есть не у каждого слоя: чипы и селект категорий показываем только там, где они есть. */
+  const categoryOptions = baseLayer?.categories ?? [];
+  /** Категории показываем только те, что есть у базового слоя: чужие варианты на карте не значат ничего. */
+  const visibleCategories = useMemo(
+    () => categories.filter((item) => categoryOptions.includes(item.slug)),
+    [categories, categoryOptions],
+  );
+  const baseColumnData = useMemo(() => (grid ? baseColumn(grid) : null), [grid]);
+  const overlayColumnData = useMemo(() => (grid ? overlayColumns(grid) : []), [grid]);
+  const legendOverlays = useMemo(
+    () =>
+      overlayColumnData.map((column) => ({
+        slug: column.slug,
+        name: column.name,
+        color: column.color,
+        nonEmptyCount: column.non_empty_count,
+      })),
+    [overlayColumnData],
+  );
+  const exportContext = useMemo<ExportContext | null>(() => {
+    if (!city || !grid) return null;
+
+    const exportLayers: ExportLayer[] = grid.layers.map((column) => ({
+      slug: column.slug,
+      name: column.name,
+      category: column.category,
+      categoryName: column.category ? (categoryNames[column.category] ?? column.category) : null,
+      role: column.role,
+      unit: column.unit,
+    }));
+
+    return {
+      cityName: city.name,
+      res,
+      layers: exportLayers,
+      dataVersion: grid.meta.data_version ?? city.data_version,
+    };
+  }, [city, grid, categoryNames, res]);
+  const dataVersion = grid?.meta.data_version ?? city?.data_version ?? null;
 
   const handleResolutionChange = useCallback((next: 8 | 9) => {
     setRes((current) => (current === next ? current : next));
@@ -219,8 +292,35 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     setSelectedCell(h3);
   }, []);
 
+  /** Смена варианта базового слоя: слой остаётся, меняется категория внутри него. */
   const selectCategory = useCallback((slug: string) => {
-    setCategorySlug(slug);
+    setBaseRef((current) => (current ? { ...current, category: slug } : current));
+    setSelectedCell(null);
+  }, []);
+
+  const selectBase = useCallback((ref: LayerRef) => {
+    setBaseRef((current) => (current && sameLayerRef(current, ref) ? current : ref));
+    setSelectedCell(null);
+  }, []);
+
+  /**
+   * Включить, выключить или перенастроить наложение.
+   *
+   * Три случая в одной функции: включение, смена категории уже включённого наложения и выключение.
+   * Третье наложение не включаем — это правило ADR 0013, и панель объясняет его на месте.
+   */
+  const toggleOverlay = useCallback((ref: LayerRef) => {
+    setOverlayRefs((current) => {
+      const existing = current.find((item) => item.slug === ref.slug);
+      if (!existing) {
+        if (current.length >= MAX_OVERLAYS) return current;
+        return [...current, ref];
+      }
+      if (existing.category !== ref.category) {
+        return current.map((item) => (item.slug === ref.slug ? ref : item));
+      }
+      return current.filter((item) => item.slug !== ref.slug);
+    });
     setSelectedCell(null);
   }, []);
 
@@ -278,9 +378,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   }, [exportContext]);
 
   const handleExportCsv = useCallback(() => {
-    if (!cells || !exportContext) return;
-    downloadText(buildCellsCsv(cells, exportContext), exportFileName(exportContext, "csv"));
-  }, [cells, exportContext]);
+    if (!grid || !exportContext) return;
+    downloadText(buildGridCsv(grid, exportContext), exportFileName(exportContext, "csv"));
+  }, [grid, exportContext]);
 
   return (
     <>
@@ -306,38 +406,42 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </select>
         </label>
 
-        <label className="topbar__control topbar__control--category">
-          <span className="topbar__label">Категория</span>
-          <select
-            aria-label="Категория"
-            value={categorySlug ?? ""}
-            onChange={(event) => selectCategory(event.target.value)}
-          >
-            {categories.map((item) => (
-              <option key={item.slug} value={item.slug}>
-                {item.name}
-                {item.poi_count === 0 ? " — нет данных" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        {categoryOptions.length > 0 && (
+          <label className="topbar__control topbar__control--category">
+            <span className="topbar__label">Категория</span>
+            <select
+              aria-label="Категория"
+              value={baseCategory ?? ""}
+              onChange={(event) => selectCategory(event.target.value)}
+            >
+              {visibleCategories.map((item) => (
+                <option key={item.slug} value={item.slug}>
+                  {item.name}
+                  {item.poi_count === 0 ? " — нет данных" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {/* На мобильном категорию выбирают чипами: селект скрыт стилями, чипы — наоборот */}
-        <div className="chips" role="group" aria-label="Категории">
-          {categories.map((item) => (
-            <button
-              key={item.slug}
-              type="button"
-              className={`chip${item.slug === categorySlug ? " chip--active" : ""}`}
-              aria-pressed={item.slug === categorySlug}
-              data-testid={`chip-${item.slug}`}
-              onClick={() => selectCategory(item.slug)}
-            >
-              {item.name}
-              {item.poi_count === 0 ? " — нет данных" : ""}
-            </button>
-          ))}
-        </div>
+        {categoryOptions.length > 0 && (
+          <div className="chips" role="group" aria-label="Категории">
+            {visibleCategories.map((item) => (
+              <button
+                key={item.slug}
+                type="button"
+                className={`chip${item.slug === baseCategory ? " chip--active" : ""}`}
+                aria-pressed={item.slug === baseCategory}
+                data-testid={`chip-${item.slug}`}
+                onClick={() => selectCategory(item.slug)}
+              >
+                {item.name}
+                {item.poi_count === 0 ? " — нет данных" : ""}
+              </button>
+            ))}
+          </div>
+        )}
 
         <span className="topbar__spacer" />
 
@@ -354,7 +458,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </button>
 
           <ExportMenu
-            disabled={!cells}
+            disabled={!grid}
             busy={exporting}
             onExportPng={handleExportPng}
             onExportCsv={handleExportCsv}
@@ -373,7 +477,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <MapView
             ref={mapRef}
             city={city}
-            cells={cells}
+            grid={grid}
             busy={status === "loading"}
             initialView={initialView}
             selectedCell={selectedCell}
@@ -386,12 +490,27 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <div className="map__placeholder" />
         )}
 
-        {category && (
+        {baseLayer && (
+          <LayerPanel
+            layers={layers}
+            base={baseRef}
+            overlays={overlayRefs}
+            grid={grid}
+            categoryNames={categoryNames}
+            onSelectBase={selectBase}
+            onToggleOverlay={toggleOverlay}
+          />
+        )}
+
+        {baseLayer && (
           <Legend
-            breaks={cells?.meta.density_breaks ?? null}
+            layer={baseColumnData ? layerLegend(baseColumnData) : null}
+            overlays={legendOverlays}
             res={res}
-            poiCount={cells?.meta.poi_count ?? category.poi_count}
             thinDataThreshold={THIN_DATA_THRESHOLD}
+            partialCoverage={
+              baseColumnData ? isPartiallyCovered(baseColumnData, grid?.meta.cell_count ?? 0) : false
+            }
           />
         )}
 
@@ -453,7 +572,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         {citySlug && selectedCell && (
           <PoiPanel
             city={citySlug}
-            category={categorySlug}
+            category={baseCategory}
             cell={selectedCell}
             // Разрешение берём у самой ячейки: состояние может опережать отрисованный слой при смене
             // разрешения по зуму, и тогда запрос со «своим» res давал 404 (см. resolutionOfCell)

@@ -11,14 +11,22 @@ import {
   type StyleSpecification,
 } from "maplibre-gl";
 
-import type { CellsResponse, CityMeta } from "@/lib/api";
+import type { CityMeta, LayerGrid, MapLayerColumn } from "@/lib/api";
 import {
   SELECTED_CELL_COLOR,
   heatColorExpression,
   heatFillOpacityExpression,
   heatOutlineColorExpression,
+  overlayOutlineColorExpression,
   resolutionForZoom,
 } from "@/lib/heat";
+import {
+  baseColumn,
+  buildCellFeatures,
+  overlayColumns,
+  overlayProperty,
+  type CellFeatureCollection,
+} from "@/lib/layers";
 
 /**
  * URL воркера MapLibre. Файлы кладутся в `public/` скриптом `scripts/copy-maplibre-worker.mjs`
@@ -54,8 +62,8 @@ export type MapViewHandle = {
 
 export type MapViewProps = {
   city: CityMeta;
-  /** Данные теплового слоя (null — ещё грузятся). */
-  cells: CellsResponse | null;
+  /** Колоночный ответ карты: базовый слой (красит заливку) и наложения (ADR 0013). */
+  grid: LayerGrid | null;
   /** Идёт загрузка: сообщаем скринридерам через `aria-busy`. */
   busy?: boolean;
   /** Карта сообщает наружу, какое разрешение соответствует текущему зуму. */
@@ -75,8 +83,47 @@ export type MapViewProps = {
 
 const CELLS_SOURCE = "cells";
 const CELLS_LAYER = "cells-fill";
+/** Наложения рисуются контуром: слой на ячейку, потому что заливка одна (ADR 0013). */
+const OVERLAY_LAYER_PREFIX = "cells-overlay-";
 const SELECTED_SOURCE = "cells-selected";
 const SELECTED_LAYER = "cells-selected-outline";
+
+/**
+ * Привести контуры наложений в соответствие с набором слоёв: лишние убрать, недостающие добавить.
+ *
+ * Наложения — контурные слои поверх заливки базового слоя. Двух наложений достаточно, потому что
+ * больше контуров разного цвета на одной карте уже не читаются (ADR 0013).
+ */
+function syncOverlayLayers(map: MapLibreMap, columns: MapLayerColumn[]): void {
+  const wanted = new Map(columns.map((column) => [`${OVERLAY_LAYER_PREFIX}${column.slug}`, column]));
+
+  for (const layer of map.getStyle()?.layers ?? []) {
+    if (layer.id.startsWith(OVERLAY_LAYER_PREFIX) && !wanted.has(layer.id)) {
+      map.removeLayer(layer.id);
+    }
+  }
+
+  for (const [id, column] of wanted) {
+    if (!map.getLayer(id)) {
+      map.addLayer({
+        id,
+        type: "line",
+        source: CELLS_SOURCE,
+        paint: { "line-color": "rgba(255, 255, 255, 0)", "line-width": 1.4 },
+      });
+    }
+    map.setPaintProperty(
+      id,
+      "line-color",
+      overlayOutlineColorExpression(overlayProperty(column.slug), column.color) as never,
+    );
+  }
+
+  // Подсветка выбранной ячейки обязана оставаться сверху: иначе её перекроет контур наложения
+  if (map.getLayer(SELECTED_LAYER)) {
+    map.moveLayer(SELECTED_LAYER);
+  }
+}
 
 /** Сколько ждать стиль подложки перед переходом на минимальный локальный стиль. */
 const STYLE_TIMEOUT_MS = 8000;
@@ -114,7 +161,7 @@ function emptyCollection(): GeoJSON.FeatureCollection {
 
 export default function MapView({
   city,
-  cells,
+  grid,
   busy = false,
   onResolutionChange,
   onCellSelect,
@@ -126,7 +173,8 @@ export default function MapView({
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const latestCellsRef = useRef<CellsResponse | null>(cells);
+  const latestGridRef = useRef<LayerGrid | null>(grid);
+  const latestFeaturesRef = useRef<CellFeatureCollection>({ type: "FeatureCollection", features: [] });
   const resolveRef = useRef(onResolutionChange);
   const selectRef = useRef(onCellSelect);
   const viewRef = useRef(onViewChange);
@@ -135,7 +183,7 @@ export default function MapView({
   const [webglMissing, setWebglMissing] = useState(false);
   const [basemapWarning, setBasemapWarning] = useState<string | null>(null);
 
-  latestCellsRef.current = cells;
+  latestGridRef.current = grid;
   resolveRef.current = onResolutionChange;
   selectRef.current = onCellSelect;
   viewRef.current = onViewChange;
@@ -143,17 +191,44 @@ export default function MapView({
 
   useImperativeHandle(ref, () => ({ getCanvas: () => mapRef.current?.getCanvas() ?? null }), []);
 
-  /** Данные теплового слоя (в том числе после смены стиля подложки). */
-  const applyCells = useCallback((map: MapLibreMap) => {
-    const source = map.getSource(CELLS_SOURCE) as GeoJSONSource | undefined;
-    source?.setData((latestCellsRef.current ?? emptyCollection()) as unknown as GeoJSON.FeatureCollection);
+  /**
+   * Данные карты: заливка базового слоя, значения наложений, состав контурных слоёв.
+   *
+   * Ячейки собираются один раз и запоминаются: подсветка выбранной ячейки берёт геометрию отсюда, а
+   * не из ответа API повторно.
+   */
+  const applyGrid = useCallback((map: MapLibreMap) => {
+    const current = latestGridRef.current;
+    const base = current ? baseColumn(current) : null;
+    const features: CellFeatureCollection = current
+      ? buildCellFeatures(current, base)
+      : { type: "FeatureCollection", features: [] };
+    latestFeaturesRef.current = features;
+
+    (map.getSource(CELLS_SOURCE) as GeoJSONSource | undefined)?.setData(
+      features as unknown as GeoJSON.FeatureCollection,
+    );
+
+    if (map.getLayer(CELLS_LAYER)) {
+      map.setPaintProperty(
+        CELLS_LAYER,
+        "fill-color",
+        heatColorExpression(base?.breaks ?? null) as never,
+      );
+      map.setPaintProperty(CELLS_LAYER, "fill-opacity", heatFillOpacityExpression() as never);
+      map.setPaintProperty(CELLS_LAYER, "fill-outline-color", heatOutlineColorExpression() as never);
+    }
+
+    syncOverlayLayers(map, current ? overlayColumns(current) : []);
   }, []);
 
   /** Контур выбранной ячейки: показываем ровно ту ячейку, для которой открыт список объектов. */
   const applySelected = useCallback((map: MapLibreMap, h3: string | null) => {
     const source = map.getSource(SELECTED_SOURCE) as GeoJSONSource | undefined;
     if (!source) return;
-    const feature = h3 ? latestCellsRef.current?.features.find((item) => item.properties.h3 === h3) : undefined;
+    const feature = h3
+      ? latestFeaturesRef.current.features.find((item) => item.properties.h3 === h3)
+      : undefined;
     source.setData(
       feature
         ? ({ type: "FeatureCollection", features: [feature] } as unknown as GeoJSON.FeatureCollection)
@@ -173,8 +248,8 @@ export default function MapView({
     reportView(map);
   }, [reportView]);
 
-  /** Добавить (или восстановить после смены стиля) тепловой слой и слой подсветки. */
-  const ensureHeatLayer = useCallback(
+  /** Добавить (или восстановить после смены стиля подложки) слои карты: заливку, подсветку, наложения. */
+  const ensureLayers = useCallback(
     (map: MapLibreMap) => {
       if (map.getSource(CELLS_SOURCE)) return;
 
@@ -184,10 +259,9 @@ export default function MapView({
         type: "fill",
         source: CELLS_SOURCE,
         paint: {
-          "fill-color": heatColorExpression(
-            latestCellsRef.current?.meta.density_breaks ?? null,
-          ) as never,
-          // Пустые ячейки — самостоятельный класс: рисуются плотно и с смысловой обводкой
+          // Раскраска ставится вместе с данными (applyGrid): до них классов легенды нет
+          "fill-color": heatColorExpression(null) as never,
+          // Пустые ячейки — самостоятельный класс: рисуются почти прозрачно, смысл несёт обводка
           "fill-opacity": heatFillOpacityExpression() as never,
           "fill-outline-color": heatOutlineColorExpression() as never,
         },
@@ -215,9 +289,10 @@ export default function MapView({
         if (h3) selectRef.current(h3);
       });
 
-      applyCells(map);
+      // Данные и раскраска: и при первой загрузке, и после смены стиля подложки
+      applyGrid(map);
     },
-    [applyCells],
+    [applyGrid],
   );
 
   // Инициализация карты — один раз
@@ -272,7 +347,7 @@ export default function MapView({
     map.on("style.load", () => {
       styleReady = true;
       window.clearTimeout(fallbackTimer);
-      ensureHeatLayer(map);
+      ensureLayers(map);
       applySelected(map, selectedRef.current);
       map.resize();
       handleZoomEnd();
@@ -300,7 +375,7 @@ export default function MapView({
   }, [
     styleUrl,
     handleZoomEnd,
-    ensureHeatLayer,
+    ensureLayers,
     applySelected,
     reportView,
     city.center.lat,
@@ -326,19 +401,14 @@ export default function MapView({
     });
   }, [city]);
 
-  // Обновление данных и раскраски теплового слоя
+  // Обновление данных: заливка базового слоя перекрашивается, состав наложений синхронизируется
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getSource(CELLS_SOURCE)) return;
 
-    applyCells(map);
-    map.setPaintProperty(
-      CELLS_LAYER,
-      "fill-color",
-      heatColorExpression(cells?.meta.density_breaks ?? null) as never,
-    );
+    applyGrid(map);
     applySelected(map, selectedCell);
-  }, [cells, selectedCell, applyCells, applySelected]);
+  }, [grid, selectedCell, applyGrid, applySelected]);
 
   // Подсветка выбранной ячейки
   useEffect(() => {
