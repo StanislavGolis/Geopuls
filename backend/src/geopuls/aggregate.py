@@ -42,7 +42,7 @@ from geopuls.db import create_engine, session_scope
 from geopuls.importers.poi import finish_import_run, load_category_ids, start_import_run
 from geopuls.layers_catalog import LAYERS, LayerDef
 from geopuls.models import CellMetric, CellStat, CityCell
-from geopuls.seed import COMPETITORS_LAYER
+from geopuls.seed import COMPETITORS_LAYER, category_slugs_by_layer
 
 #: Разрешения, для которых строится сетка (детальный и обзорный слои карты).
 DEFAULT_RESOLUTIONS = (9, 8)
@@ -739,17 +739,28 @@ async def aggregate_city(
         # метрики (площадь, длина) и, для остановок, склейка дубликатов. `cell_stats` остаётся
         # заполненной как совместимый путь чтения (ADR 0013)
         competitors_id, dataset_id = await load_layer_identity(session)
+        # Только категории этого слоя: `stat_rows` построены для всех активных категорий, и без фильтра
+        # метрики слоёв Этапа 9 попадали в «Конкурентов» под тем же layer_id (на проде: 14 категорий
+        # вместо 8, то есть 1786 лишних строк на каждую чужую категорию)
+        competitor_ids = {
+            category_ids[slug] for slug in category_slugs_by_layer()[COMPETITORS_LAYER] if slug in category_ids
+        }
         layer_rows: list[tuple[int, list[dict[str, Any]]]] = [
             (
                 competitors_id,
                 build_cell_metric_rows(
-                    stat_rows,
+                    [row for row in stat_rows if row["category_id"] in competitor_ids],
                     layer_id=competitors_id,
                     dataset_id=dataset_id,
                     data_version=result.data_version,
                 ),
             )
         ]
+
+        # Сетку пишем ДО пространственных сумм: им нужны полигоны ячеек (`city_cells.boundary`), а они
+        # появляются только здесь. На первом прогоне после миграции 0004 границы ещё пустые, и суммы
+        # молча получались нулевыми — грабля, найденная на проде при переимпорте Этапа 9
+        await replace_city_grid(session, city.city_id, grid)
 
         # Площадь и длина считаются одним запросом на все слои каталога: PostGIS пересекает объекты
         # с ячейками, а не Python перебирает их по одной
@@ -787,7 +798,6 @@ async def aggregate_city(
                 )
             )
 
-        await replace_city_grid(session, city.city_id, grid)
         await replace_cell_stats(session, city.city_id, resolutions, stat_rows)
         for layer_id, rows in layer_rows:
             result.metrics_written += await replace_cell_metrics(

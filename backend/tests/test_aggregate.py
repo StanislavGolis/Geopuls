@@ -252,8 +252,10 @@ async def test_aggregate_writes_metrics_consistent_with_stats(clean_engine: Asyn
             .one()
         )
 
-    # cell_stats отвечает только за слой конкурентов, поэтому сверяем с ним срез одного слоя
-    assert summary["metrics"] == summary["stats"] > 0
+    # cell_stats отвечает за все активные категории, а слой конкурентов — только за свои восемь,
+    # поэтому метрик у него меньше; сверяем числа по пересечению (matched) и порядок величин
+    assert summary["metrics"] > 0
+    assert summary["metrics"] < summary["stats"], "в слое конкурентов только его категории"
     assert summary["matched"] == summary["metrics"], "значения метрик должны совпадать со статистикой"
     assert summary["versions"] == 1
     assert summary["empty_count"] > 0, "пустые ячейки обязаны попадать в метрики"
@@ -290,6 +292,69 @@ async def test_aggregate_keeps_snapshots_by_data_version(clean_engine: AsyncEngi
 
     assert summary["versions"] == 2, "каждая версия выгрузки хранится отдельным снимком"
     assert summary["total"] == rows_after_repeat * 2, "повторный прогон не должен дублировать строки"
+
+
+async def add_polygon_poi(engine: AsyncEngine) -> None:  # type: ignore[no-untyped-def]
+    """Добавить жилой дом-полигон: метрику площади нельзя проверить на одних точках.
+
+    H3-ячейки берём у существующего объекта, чтобы не считать их в тесте отдельно.
+    """
+    async with session_scope(engine) as session:
+        poi_id = (
+            await session.execute(
+                text(
+                    "INSERT INTO pois (osm_type, osm_id, location, geometry, h3_r9, h3_r8, tags, source) "
+                    "SELECT 'way', 999001, "
+                    "  ST_GeogFromText('SRID=4326;POINT(84.9482 56.4847)'), "
+                    "  ST_GeogFromText('SRID=4326;POLYGON((84.9478 56.4845, 84.9486 56.4845, "
+                    "    84.9486 56.4849, 84.9478 56.4845))'), "
+                    "  p.h3_r9, p.h3_r8, '{}'::jsonb, 'geofabrik' "
+                    "FROM pois p LIMIT 1 RETURNING id"
+                )
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO poi_categories (poi_id, category_id) "
+                "SELECT :poi_id, id FROM categories WHERE slug = 'residential'"
+            ),
+            {"poi_id": poi_id},
+        )
+
+
+async def test_aggregate_computes_area_and_keeps_layers_apart(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Площадь считается по геометрии, а метрики слоёв не подмешиваются в «Конкурентов».
+
+    Тест закрывает две ошибки, найденные на проде: пространственные суммы считались до записи полигонов
+    ячеек (и молча выходили нулевыми), а слой конкурентов получал метрики всех активных категорий.
+    """
+    await seed_city_and_pois(clean_engine, tmp_path)
+    await add_polygon_poi(clean_engine)
+
+    async with session_scope(clean_engine) as session:
+        await aggregate_city(session, "tomsk", (9,))
+
+    async with session_scope(clean_engine) as session:
+        summary = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT max(cm.value) FROM cell_metrics cm JOIN layers l ON l.id = cm.layer_id "
+                        " WHERE l.slug = 'residential') AS residential_max, "
+                        "(SELECT count(DISTINCT c.slug) FROM cell_metrics cm "
+                        " JOIN layers l ON l.id = cm.layer_id "
+                        " JOIN categories c ON c.id = cm.category_id "
+                        " WHERE l.slug = 'competitors') AS competitors_categories"
+                    )
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert summary["residential_max"] > 0, "площадь жилья обязана считаться по геометрии"
+    assert summary["competitors_categories"] == 8, "чужие категории не должны попадать к конкурентам"
 
 
 async def test_aggregate_city_builds_grid_and_stats(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
