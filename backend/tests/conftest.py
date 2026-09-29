@@ -39,8 +39,8 @@ TOMSK_BOUNDARY = FIXTURES_DIR / "tomsk-boundary.json"
 MINI_PBF = FIXTURES_DIR / "mini-tomsk.osm.pbf"
 
 TRUNCATE_ALL = (
-    "TRUNCATE pois, poi_categories, cell_stats, city_cells, import_runs, data_versions, "
-    "cities, categories RESTART IDENTITY CASCADE"
+    "TRUNCATE pois, poi_categories, cell_metrics, cell_stats, city_cells, import_runs, data_versions, "
+    "layers, datasets, cities, categories RESTART IDENTITY CASCADE"
 )
 
 

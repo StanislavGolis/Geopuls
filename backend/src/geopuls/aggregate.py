@@ -39,7 +39,8 @@ from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
 from geopuls.importers.poi import finish_import_run, load_category_ids, start_import_run
-from geopuls.models import CellStat, CityCell
+from geopuls.models import CellMetric, CellStat, CityCell
+from geopuls.seed import COMPETITORS_LAYER
 
 #: Разрешения, для которых строится сетка (детальный и обзорный слои карты).
 DEFAULT_RESOLUTIONS = (9, 8)
@@ -78,6 +79,10 @@ class AggregateResult:
     city_area_km2: float = 0.0
     grid_area_km2: dict[int, float] = field(default_factory=dict)
     density_breaks: dict[str, list[float]] = field(default_factory=dict)
+    #: Сколько строк метрик записано в `cell_metrics` (слой «Конкуренты»)
+    metrics_written: int = 0
+    #: Версия данных, под которой записан снимок метрик
+    data_version: str | None = None
     seconds: float = 0.0
 
     @property
@@ -102,6 +107,8 @@ class AggregateResult:
         lines.append(f"Расхождение площади с полигоном: {self.area_deviation_percent:+.1f}%")
         breaks = ", ".join(f"{slug}: {values}" for slug, values in sorted(self.density_breaks.items()))
         lines.append(f"Границы классов легенды (POI/км²): {breaks}")
+        if self.metrics_written:
+            lines.append(f"Метрики слоя «Конкуренты»: строк {self.metrics_written}, версия данных {self.data_version}")
         lines.append(f"Время агрегации: {self.seconds:.1f} с")
         return "\n".join(lines)
 
@@ -328,6 +335,94 @@ async def replace_city_grid(
     return written
 
 
+def build_cell_metric_rows(
+    stat_rows: Sequence[dict[str, Any]],
+    *,
+    layer_id: int,
+    dataset_id: int | None,
+    data_version: str,
+) -> list[dict[str, Any]]:
+    """Строки `cell_metrics` по статистике POI (слой «Конкуренты»).
+
+    Значение метрики слоя — плотность, число объектов и доля адресов уезжают в ``extras``:
+    они нужны подписям и панели ячейки, но не участвуют в раскраске.
+    """
+    rows: list[dict[str, Any]] = []
+    for row in stat_rows:
+        extras: dict[str, Any] = {"count": row["poi_count"]}
+        if row["has_address_ratio"] is not None:
+            extras["has_address_ratio"] = round(float(row["has_address_ratio"]), 3)
+        rows.append(
+            {
+                "city_id": row["city_id"],
+                "layer_id": layer_id,
+                "category_id": row["category_id"],
+                "resolution": row["resolution"],
+                "h3_index": row["h3_index"],
+                "data_version": data_version,
+                "value": round(float(row["density"]), 4),
+                "value_kind": "density",
+                "extras": extras,
+                "dataset_id": dataset_id,
+            }
+        )
+    return rows
+
+
+async def load_layer_identity(session: AsyncSession, slug: str = COMPETITORS_LAYER) -> tuple[int, int | None]:
+    """Идентификаторы слоя и его источника: без них метрику некуда записать."""
+    row = (
+        (await session.execute(text("SELECT id, dataset_id FROM layers WHERE slug = :slug"), {"slug": slug}))
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        raise AggregateError(f"Слой '{slug}' не найден — сначала сид справочников: python -m geopuls.seed --skip-city")
+    return int(row["id"]), int(row["dataset_id"]) if row["dataset_id"] is not None else None
+
+
+async def load_current_data_version(session: AsyncSession) -> str:
+    """Версия данных для метрик: дата выгрузки, опубликованная импортёром."""
+    version = (await session.execute(text("SELECT max(version) FROM data_versions"))).scalar()
+    return str(version) if version else "unknown"
+
+
+async def replace_cell_metrics(
+    session: AsyncSession,
+    *,
+    city_id: int,
+    layer_id: int,
+    resolutions: Iterable[int],
+    data_version: str,
+    rows: Sequence[dict[str, Any]],
+) -> int:
+    """Переписать снимок метрик слоя за указанную версию данных.
+
+    Удаляем только строки той же версии: снимки прошлых выгрузок остаются — из них складывается
+    динамика («открылось/закрылось»), которую нельзя восстановить задним числом.
+    """
+    for resolution in resolutions:
+        await session.execute(
+            text(
+                "DELETE FROM cell_metrics WHERE city_id = :city_id AND layer_id = :layer_id "
+                "AND resolution = :resolution AND data_version = :data_version"
+            ),
+            {
+                "city_id": city_id,
+                "layer_id": layer_id,
+                "resolution": resolution,
+                "data_version": data_version,
+            },
+        )
+    written = 0
+    # Вычисляемые колонки (category_key) в INSERT не передаём: их считает база
+    columns = len([column for column in CellMetric.__table__.columns if column.computed is None])
+    for batch in batch_rows(rows, columns=columns):
+        await session.execute(pg_insert(CellMetric.__table__).values(batch))
+        written += len(batch)
+    return written
+
+
 async def replace_cell_stats(
     session: AsyncSession,
     city_id: int,
@@ -408,11 +503,29 @@ async def aggregate_city(
         )
 
     result.density_breaks = compute_breaks_by_category(stat_rows, category_ids, classes=legend_classes)
+    result.data_version = await load_current_data_version(session)
     result.seconds = round(time.perf_counter() - started, 1)
 
     if not dry_run:
+        # Слой «Конкуренты» — единственный слой на Этапе 8; метрики пишем в новую таблицу,
+        # cell_stats оставляем заполненной как совместимый путь чтения (ADR 0013)
+        layer_id, dataset_id = await load_layer_identity(session)
+        metric_rows = build_cell_metric_rows(
+            stat_rows,
+            layer_id=layer_id,
+            dataset_id=dataset_id,
+            data_version=result.data_version,
+        )
         await replace_city_grid(session, city.city_id, grid)
         await replace_cell_stats(session, city.city_id, resolutions, stat_rows)
+        result.metrics_written = await replace_cell_metrics(
+            session,
+            city_id=city.city_id,
+            layer_id=layer_id,
+            resolutions=resolutions,
+            data_version=result.data_version,
+            rows=metric_rows,
+        )
 
     return result
 

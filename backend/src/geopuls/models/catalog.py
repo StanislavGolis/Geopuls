@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -27,6 +27,8 @@ class Category(Base):
     name_ru: Mapped[str] = mapped_column(String(200))
     osm_tags: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     color: Mapped[str] = mapped_column(String(20), server_default=text("'#1f6fb2'"))
+    #: Слой, внутри которого категория является вариантом (ADR 0013): сегодня — «Конкуренты»
+    layer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("layers.id", ondelete="SET NULL"))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -7,7 +7,14 @@ from pathlib import Path
 
 from geopuls.categories import MVP_CATEGORIES
 from geopuls.importers.boundary import load_boundary
-from geopuls.seed import build_category_rows, build_city_params
+from geopuls.models.layers import METRIC_KINDS
+from geopuls.seed import (
+    COMPETITORS_LAYER,
+    build_category_rows,
+    build_city_params,
+    build_dataset_rows,
+    build_layer_rows,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tomsk-boundary.json"
 
@@ -19,6 +26,27 @@ def test_category_rows_match_mvp_categories() -> None:
     assert [row["sort_order"] for row in rows] == list(range(len(rows)))
     assert len({row["slug"] for row in rows}) == len(rows)
     assert all(row["name_ru"] and row["color"] and row["osm_tags"] for row in rows)
+
+
+def test_dataset_rows_carry_license_and_attribution() -> None:
+    """Без лицензии и атрибуции источник нельзя показывать в интерфейсе и экспорте (ADR 0013)."""
+    rows = build_dataset_rows()
+
+    assert {row["slug"] for row in rows} == {"osm"}
+    assert all(row["license"] and row["license_url"] and row["attribution_text"] for row in rows)
+    assert all("OpenStreetMap" in row["attribution_text"] for row in rows)
+
+
+def test_layer_rows_declare_metric_and_dataset() -> None:
+    """Слой обязан объявить метрику, единицу и источник: иначе значение нечем подписать."""
+    rows = build_layer_rows({"osm": 7})
+    competitors = next(row for row in rows if row["slug"] == COMPETITORS_LAYER)
+
+    assert competitors["metric_kind"] in METRIC_KINDS
+    assert competitors["unit"]
+    assert competitors["dataset_id"] == 7
+    assert competitors["can_be_base"] is True
+    assert len({row["slug"] for row in rows}) == len(rows)
 
 
 def test_restaurant_row_includes_fast_food() -> None:

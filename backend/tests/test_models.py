@@ -10,11 +10,14 @@ from geopuls.models import Base
 
 EXPECTED_TABLES = {
     "categories",
+    "cell_metrics",
     "cell_stats",
     "cities",
     "city_cells",
     "data_versions",
+    "datasets",
     "import_runs",
+    "layers",
     "poi_categories",
     "pois",
 }
@@ -88,3 +91,35 @@ def test_cell_stats_primary_key_covers_category() -> None:
     ]
     assert "density" in cell_stats.c
     assert "has_address_ratio" in cell_stats.c
+
+
+def test_cell_metrics_primary_key_covers_data_version() -> None:
+    """Версия данных входит в ключ: снимки прошлых выгрузок не затираются (ADR 0013)."""
+    cell_metrics = Base.metadata.tables["cell_metrics"]
+
+    assert [column.name for column in cell_metrics.primary_key.columns] == [
+        "city_id",
+        "layer_id",
+        "category_key",
+        "resolution",
+        "h3_index",
+        "data_version",
+    ]
+    # category_key — вычисляемая колонка: NULL не может быть частью ключа, поэтому coalesce
+    assert cell_metrics.c.category_key.computed is not None
+    assert cell_metrics.c.category_id.nullable is True
+    assert isinstance(cell_metrics.c.extras.type, JSONB)
+
+
+def test_layer_registry_columns() -> None:
+    layers = Base.metadata.tables["layers"]
+    datasets = Base.metadata.tables["datasets"]
+    categories = Base.metadata.tables["categories"]
+
+    assert layers.c.slug.unique is True
+    assert "metric_kind" in layers.c
+    assert "can_be_base" in layers.c
+    assert "attribution_text" in datasets.c
+    assert "data_version" in datasets.c
+    # Категория — вариант внутри слоя
+    assert "layer_id" in categories.c

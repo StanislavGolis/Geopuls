@@ -219,6 +219,73 @@ async def seed_city_and_pois(engine: AsyncEngine, tmp_path) -> None:  # type: ig
         await deactivate_missing(session, source="geofabrik", watermark=watermark)
 
 
+async def test_aggregate_writes_metrics_consistent_with_stats(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """`cell_metrics` и `cell_stats` должны совпадать: новый источник и совместимый путь чтения."""
+    await seed_city_and_pois(clean_engine, tmp_path)
+
+    async with session_scope(clean_engine) as session:
+        result = await aggregate_city(session, "tomsk", (9, 8))
+
+    async with session_scope(clean_engine) as session:
+        summary = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT count(*) FROM cell_metrics) AS metrics, "
+                        "(SELECT count(*) FROM cell_stats) AS stats, "
+                        "(SELECT count(*) FROM cell_metrics cm JOIN cell_stats cs "
+                        "   ON cs.city_id = cm.city_id AND cs.resolution = cm.resolution "
+                        "   AND cs.h3_index = cm.h3_index AND cs.category_id = cm.category_id "
+                        " WHERE abs(cm.value - cs.density) < 0.001) AS matched, "
+                        "(SELECT count(DISTINCT data_version) FROM cell_metrics) AS versions, "
+                        "(SELECT count(*) FROM cell_metrics WHERE extras->>'count' = '0') AS empty_count, "
+                        "(SELECT extras->>'count' FROM cell_metrics LIMIT 1) AS sample"
+                    )
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert summary["metrics"] == summary["stats"] > 0
+    assert summary["matched"] == summary["metrics"], "значения метрик должны совпадать со статистикой"
+    assert summary["versions"] == 1
+    assert summary["empty_count"] > 0, "пустые ячейки обязаны попадать в метрики"
+    assert summary["sample"] is not None, "extras должен содержать счётчик объектов"
+    assert result.metrics_written == summary["metrics"]
+
+
+async def test_aggregate_keeps_snapshots_by_data_version(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Новая версия выгрузки добавляет снимок, а повторный прогон той же версии — перезаписывает."""
+    await seed_city_and_pois(clean_engine, tmp_path)
+
+    async with session_scope(clean_engine) as session:
+        await aggregate_city(session, "tomsk", (9,))
+    async with session_scope(clean_engine) as session:
+        await aggregate_city(session, "tomsk", (9,))
+
+    async with session_scope(clean_engine) as session:
+        rows_after_repeat = (await session.execute(text("SELECT count(*) FROM cell_metrics"))).scalar()
+        await session.execute(text("INSERT INTO data_versions (version) VALUES ('2099-01-01')"))
+    async with session_scope(clean_engine) as session:
+        await aggregate_city(session, "tomsk", (9,))
+
+    async with session_scope(clean_engine) as session:
+        summary = (
+            (
+                await session.execute(
+                    text("SELECT count(*) AS total, count(DISTINCT data_version) AS versions FROM cell_metrics")
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert summary["versions"] == 2, "каждая версия выгрузки хранится отдельным снимком"
+    assert summary["total"] == rows_after_repeat * 2, "повторный прогон не должен дублировать строки"
+
+
 async def test_aggregate_city_builds_grid_and_stats(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]
     await seed_city_and_pois(clean_engine, tmp_path)
 

@@ -10,16 +10,20 @@ from geopuls.models.base import Base
 from geopuls.models.catalog import Category, DataVersion
 from geopuls.models.geo import CellStat, City, CityCell
 from geopuls.models.ingest import ImportRun
+from geopuls.models.layers import CellMetric, Dataset, Layer
 from geopuls.models.pois import Poi, PoiCategory
 
 __all__ = [
     "Base",
     "Category",
+    "CellMetric",
     "CellStat",
     "City",
     "CityCell",
     "DataVersion",
+    "Dataset",
     "ImportRun",
+    "Layer",
     "Poi",
     "PoiCategory",
 ]

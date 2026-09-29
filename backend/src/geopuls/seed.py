@@ -19,16 +19,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.sql import func
 
 from geopuls.categories import MVP_CATEGORIES
 from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
 from geopuls.importers.boundary import CityBoundary, load_boundary
-from geopuls.models import Category
+from geopuls.models import Category, Dataset, Layer
+
+#: Слой, в который попадают сегодняшние категории POI (ADR 0013).
+COMPETITORS_LAYER = "competitors"
 
 
 def build_category_rows() -> list[dict[str, Any]]:
@@ -67,8 +71,96 @@ def build_city_params(
     }
 
 
+def build_dataset_rows() -> list[dict[str, Any]]:
+    """Источники данных: лицензия и атрибуция нужны и в интерфейсе, и в экспорте (ADR 0013)."""
+    return [
+        {
+            "slug": "osm",
+            "title": "OpenStreetMap (Geofabrik)",
+            "license": "ODbL 1.0",
+            "license_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+            "attribution_text": "© OpenStreetMap contributors",
+            "source_url": "https://download.geofabrik.de/russia/siberian-fed-district-latest.osm.pbf",
+        }
+    ]
+
+
+def build_layer_rows(dataset_ids: dict[str, int]) -> list[dict[str, Any]]:
+    """Слои карты: на Этапе 8 реальный слой один — сегодняшние категории POI.
+
+    Остальные слои (население, транспорт, жильё, работа, якоря, пешеходные пути) добавляются
+    на Этапах 9–10, вместе с их источниками: слой без данных в реестре только путает.
+    """
+    return [
+        {
+            "slug": COMPETITORS_LAYER,
+            "name_ru": "Конкуренты (объекты по категориям)",
+            "kind": "osm",
+            "metric_kind": "density",
+            "unit": "POI/км²",
+            "scale": "quantile",
+            "color": "#1f6fb2",
+            "can_be_base": True,
+            "dataset_id": dataset_ids.get("osm"),
+            "sort_order": 10,
+        }
+    ]
+
+
+async def seed_datasets(session: AsyncSession) -> dict[str, int]:
+    """Записать источники данных. Возвращает slug → id."""
+    rows = build_dataset_rows()
+    table = Dataset.__table__
+    statement = pg_insert(table).values(rows)
+    statement = statement.on_conflict_do_update(
+        index_elements=[table.c.slug],
+        set_={
+            "title": statement.excluded.title,
+            "license": statement.excluded.license,
+            "license_url": statement.excluded.license_url,
+            "attribution_text": statement.excluded.attribution_text,
+            "source_url": statement.excluded.source_url,
+            "updated_at": func.now(),
+        },
+    )
+    await session.execute(statement)
+    result = await session.execute(select(table.c.slug, table.c.id))
+    return dict(result.all())
+
+
+async def seed_layers(session: AsyncSession, dataset_ids: dict[str, int]) -> list[str]:
+    """Записать слои карты. Возвращает список slug'ов."""
+    rows = build_layer_rows(dataset_ids)
+    table = Layer.__table__
+    statement = pg_insert(table).values(rows)
+    statement = statement.on_conflict_do_update(
+        index_elements=[table.c.slug],
+        set_={
+            "name_ru": statement.excluded.name_ru,
+            "kind": statement.excluded.kind,
+            "metric_kind": statement.excluded.metric_kind,
+            "unit": statement.excluded.unit,
+            "scale": statement.excluded.scale,
+            "color": statement.excluded.color,
+            "can_be_base": statement.excluded.can_be_base,
+            "dataset_id": statement.excluded.dataset_id,
+            "sort_order": statement.excluded.sort_order,
+            "is_active": True,
+        },
+    )
+    await session.execute(statement)
+    return [row["slug"] for row in rows]
+
+
 async def seed_categories(session: AsyncSession) -> list[str]:
-    """Записать категории MVP: вставка или обновление по `slug`."""
+    """Записать справочники: источники, слои и категории MVP.
+
+    Порядок обязателен: категория ссылается на слой, слой — на источник. Повторный запуск
+    безопасен (вставка или обновление по `slug`), а категории без слоя попадают в слой
+    «Конкуренты» — так новые категории не остаются висеть вне слоёв.
+    """
+    dataset_ids = await seed_datasets(session)
+    await seed_layers(session, dataset_ids)
     rows = build_category_rows()
     table = Category.__table__
     statement = pg_insert(table).values(rows)
@@ -83,6 +175,15 @@ async def seed_categories(session: AsyncSession) -> list[str]:
         },
     )
     await session.execute(statement)
+    await session.execute(
+        text(
+            """
+            UPDATE categories SET layer_id = (SELECT id FROM layers WHERE slug = :layer)
+            WHERE layer_id IS NULL
+            """
+        ),
+        {"layer": COMPETITORS_LAYER},
+    )
     return [row["slug"] for row in rows]
 
 
