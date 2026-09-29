@@ -162,18 +162,24 @@ Telegram `{"text": ...}`).
 
 ## Проверки после деплоя
 
+```powershell
+pwsh -File tools/prod-check.ps1 -ExpectedSha <коммит>   # healthz/readyz/version, слои, числа ячеек, браузер
+pwsh -File tools/prod-check.ps1 -SkipBrowser            # быстрая проверка без браузера
+```
+
+Скрипт печатает по строке на проверку (коды, время ответа, числа слоя, проблем в браузере) и падает с
+ненулевым кодом, если что-то не сошлось. Точечные `curl` к эндпоинту нужны только при разборе
+инцидента: в обычном цикле их заменяет `prod-check`.
+
+Разовые прогоны, которые не входят в рутину (отчёты — `docs/acceptance/`):
+
 ```bash
-curl -fsS https://<домен>/healthz && curl -fsS https://<домен>/readyz
-curl -fsS -o /dev/null -w '%{http_code} %{size_download}\n' \
-  "https://<домен>/api/v1/cells?city=tomsk&category=cafe&res=9"
-
-# локально: карта, ячейки, клик по ячейке и список объектов в реальном браузере
-cd frontend && PROD_URL="https://<домен>/?city=tomsk&category=cafe&debug=1" node scripts/prod-smoke.mjs
-
-# нагрузочный прогон и Lighthouse (отчёты — docs/acceptance/)
 cd backend && uv run python tools/loadtest.py --base-url https://<домен> --requests 40 --concurrency 6
 npx lighthouse "https://<домен>/?city=tomsk&category=cafe" --chrome-flags="--headless=new"
 ```
+
+Правила вывода (почему команды запускаются именно так) — в README, раздел «Проверки и деплой одной
+командой».
 
 Флаг `debug=1` в URL обязателен для браузерных проверок: ссылка на карту (`window.__geopulsMap`) в
 продакшене отдаётся только с ним (ADR 0009). `prod-diagnose.mjs` печатает состояние карты, запросы к
