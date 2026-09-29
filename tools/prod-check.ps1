@@ -92,6 +92,27 @@ else {
 $legacy = Get-Api "$BaseUrl/api/v1/cells?city=$City&category=$Category&res=9"
 Report ("старый /cells — {0} ({1} с); контракт совместим" -f $legacy.Status, $legacy.Seconds) ($legacy.Status -eq 200)
 
+# Остальные слои (Этап 9): проверяем, что данные дошли до каждого. Пустой слой — предупреждение, а не
+# провал: сразу после выката слои есть в реестре, а метрик у них нет, пока не прошёл переимпорт
+$empty = @()
+foreach ($layer in $layers) {
+    if ($layer.slug -eq 'competitors') { continue }
+    $response = Get-Api "$BaseUrl/api/v1/layers/$($layer.slug)/cells?city=$City&res=9"
+    if ($response.Status -ne 200) {
+        $empty += $layer.slug
+        Write-Host ("  --   слой {0} — метрик нет ({1})" -f $layer.slug, $response.Status) -ForegroundColor Yellow
+        continue
+    }
+    $layerMeta = $response.Json.meta
+    Report (
+        "слой {0} — непустых {1}, максимум {2} {3}" -f
+        $layer.slug, $layerMeta.non_empty_count, $layerMeta.max_value, $layerMeta.unit
+    ) ($layerMeta.non_empty_count -gt 0)
+}
+if ($empty.Count -gt 0) {
+    Write-Host ("  --   без данных: {0} (нужен переимпорт выгрузки)" -f ($empty -join ', ')) -ForegroundColor Yellow
+}
+
 if (-not $SkipBrowser) {
     $smokeJson = Join-Path $logDir 'prod-smoke.json'
     $smokeErr = Join-Path $logDir 'prod-smoke.err.log'
