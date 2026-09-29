@@ -40,6 +40,17 @@ fi
 log "пересборка и запуск"
 bash infra/ops/deploy.sh
 
+# Caddy держит соединение с контейнером API по имени, а после пересоздания api получает новый адрес:
+# без перезапуска прокси какое-то время отдаёт 502 (проверено на проде). Перезапускаем и проверяем снова.
+log "перезапуск Caddy после пересоздания api"
+docker compose restart caddy >/dev/null 2>&1 || true
+sleep 3
+domain="$(grep -E '^DOMAIN=' .env | tail -1 | cut -d= -f2-)"
+if [ -n "$domain" ]; then
+    curl -fsS -m 20 "https://$domain/healthz" >/dev/null && log "публичный адрес отвечает после обновления" \
+        || log "ВНИМАНИЕ: публичный адрес не ответил — проверьте Caddy вручную"
+fi
+
 log "проверка данных после обновления"
 docker compose exec -T db psql -U "$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2-)" \
     -d "$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2-)" -t -A -c \
