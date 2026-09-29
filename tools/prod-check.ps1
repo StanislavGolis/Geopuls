@@ -103,6 +103,26 @@ if (-not $SkipBrowser) {
     }
     $smoke = $null
     try { $smoke = Get-Content $smokeJson -Raw | ConvertFrom-Json } catch { $smoke = $null }
+
+    # Сразу после деплоя web-контейнер ещё прогревается (Next тянет стили и воркер карты), и браузерная
+    # проверка успевает упасть по таймауту — через минуту тот же прогон проходит. Поэтому одна повторная
+    # попытка: иначе выкат «падает» на ровном месте и перестаёт быть сигналом о реальной проблеме
+    if ($code -ne 0 -or -not $smoke) {
+        Write-Host '  ..   браузерная проверка не прошла, повтор через 20 с (прогрев после деплоя)' -ForegroundColor Yellow
+        Start-Sleep -Seconds 20
+        Push-Location $frontend
+        try {
+            $env:PROD_URL = "$BaseUrl/?city=$City&category=$Category&debug=1"
+            & node 'scripts/prod-smoke.mjs' 1> $smokeJson 2> $smokeErr
+            $code = $LASTEXITCODE
+        }
+        finally {
+            Remove-Item Env:\PROD_URL -ErrorAction SilentlyContinue
+            Pop-Location
+        }
+        try { $smoke = Get-Content $smokeJson -Raw | ConvertFrom-Json } catch { $smoke = $null }
+    }
+
     if ($smoke) {
         $problems = @($smoke.problems)
         Report (
