@@ -597,6 +597,8 @@ uv run python -m geopuls.aggregate --city tomsk
 тестом `backend/tests/test_refresh.py`), ненулевой код возврата — сигнал для уведомления (§9.3).
 
 Расписание MVP: еженедельно (ночной запуск) — cron или systemd-timer на VPS, вызывающий `geopuls.refresh`.
+Замер на проде (Томск, выгрузка Сибирского ФО 557 МБ, 2 vCPU): скачивание ≈ 2 мин, скан ≈ 40 мин,
+агрегация 0.2 с; пик памяти контейнера импорта 1.78 ГиБ — окно 02:30 закрывается до бэкапа в 03:20.
 
 ### 9.3 Наблюдаемость
 
@@ -680,8 +682,9 @@ uv run python -m geopuls.aggregate --city tomsk
       `tools/db-backup.ps1` + `tools/db-restore.ps1` локально и `infra/ops/backup.sh` +
       `verify-backup.sh` на проде со сверкой числа строк — `docs/acceptance/2026-09-28-backup.md`)
 - [x] Данные обновляются по расписанию; при падении импорта есть уведомление
-      (cron воскресенье 02:30 → `infra/ops/refresh-data.sh`; при сбое — ненулевой код, запись в лог и
-      сообщение в `GEOPULS_ALERT_WEBHOOK`; первый плановый прогон — 04.10.2026)
+      (cron воскресенье 02:30 → `infra/ops/refresh-data.sh`; полный цикл проверен на проде вручную:
+      скачивание 2 мин, скан 40 мин, агрегация 0.2 с, пик памяти 1.78 ГиБ — `docs/acceptance/2026-09-28-prod.md`;
+      при сбое — ненулевой код, запись в лог и сообщение в `GEOPULS_ALERT_WEBHOOK`)
 - [x] Нагрузочный прогон и Lighthouse-прогон задокументированы
       (`docs/acceptance/2026-09-28-load.md`, `docs/acceptance/2026-09-28-lighthouse.md`)
 

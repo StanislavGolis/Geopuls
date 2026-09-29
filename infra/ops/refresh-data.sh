@@ -11,7 +11,10 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 PBF_URL="${GEOPULS_GEOFABRIK_PBF_URL:-https://download.geofabrik.de/russia/siberian-fed-district-latest.osm.pbf}"
 CITY="${GEOPULS_CITY:-tomsk}"
-MIN_FREE_MB="${MIN_FREE_MB:-1800}"   # импорт PBF держит индекс локаций osmium (~2 ГБ)
+# Импорт PBF держит индекс локаций osmium: замер на проде дал пик 1.78 ГиБ в контейнере импорта и
+# минимум 0.95 ГиБ свободной памяти на хосте (3.9 ГиБ всего). Порог 2000 МБ оставляет запас на рост
+# выгрузки; если свободной памяти меньше, полный импорт пропускается (см. ниже) — сервис важнее данных.
+MIN_FREE_MB="${MIN_FREE_MB:-2000}"
 RAW_DIR="$PWD/data/raw"
 PBF_NAME="$(basename "$PBF_URL")"
 PBF_PATH="$RAW_DIR/$PBF_NAME"

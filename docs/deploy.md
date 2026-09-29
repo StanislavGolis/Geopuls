@@ -17,14 +17,16 @@
 | `/etc/cron.d/geopuls` | расписание: бэкап, проверка копии, мониторинг, обновление данных |
 | `/opt/geopuls/data` | выгрузки OSM для обновления данных (`data/raw/*.osm.pbf`) |
 
-Скрипты эксплуатации — `infra/ops/`: `install-docker.sh`, `bootstrap.sh`, `deploy.sh`, `update.sh`,
-`backup.sh`, `verify-backup.sh`, `monitor.sh`, `refresh-data.sh`, `cron.geopuls`.
+Скрипты эксплуатации — `infra/ops/`: `install-docker.sh`, `install-swap.sh`, `bootstrap.sh`, `deploy.sh`,
+`update.sh`, `backup.sh`, `verify-backup.sh`, `monitor.sh`, `refresh-data.sh`, `watch-refresh-memory.sh`,
+`cron.geopuls`.
 
 ## Первый деплой (с нуля)
 
 ```bash
-# 1. Docker и compose (один раз)
+# 1. Docker и compose, swap (один раз)
 bash infra/ops/install-docker.sh
+bash infra/ops/install-swap.sh          # 2 ГБ: импорт выгрузки пиково ест память, swap на VPS нет
 
 # 2. Локально: архив коммита и прод-конфигурация
 git archive --format=tar.gz -o geopuls-src.tar.gz HEAD
@@ -81,8 +83,13 @@ Let's Encrypt выдаёт обычный (не самоподписанный) 
 - **Начальное наполнение**: восстановление дампа (`bootstrap.sh` с `DUMP=...`).
 - **Плановое обновление**: cron `infra/ops/refresh-data.sh` — воскресенье, 02:30. Скачивает свежую
   выгрузку Geofabrik (`curl -z`, только если появилась новее), затем `python -m geopuls.refresh`
-  (справочники → POI → агрегация). Если свободной памяти меньше порога (по умолчанию 1800 МБ),
+  (справочники → POI → агрегация). Если свободной памяти меньше порога (по умолчанию 2000 МБ),
   полный импорт пропускается с тревогой в вебхук, а агрегаты пересобираются.
+- **Сколько это занимает** (замер на проде 28.09.2026, выгрузка Сибирского ФО 557 МБ, 2 vCPU):
+  скачивание ≈ 2 мин, скан ≈ 40 мин, агрегация 0.2 с — полный цикл ≈ 42 мин, поэтому окно 02:30
+  закрывается раньше бэкапа в 03:20. Пик памяти контейнера импорта 1.78 ГиБ, минимум свободной
+  памяти на хосте 0.95 ГиБ. Чтобы перемерить, запустите рядом
+  `nohup bash infra/ops/watch-refresh-memory.sh /var/log/geopuls/refresh-memory.log &`.
 - **Ручной запуск**: `bash infra/ops/refresh-data.sh --skip-import` (быстро, только агрегаты).
 - **Права на каталог выгрузки.** Плановое обновление скачивает PBF от имени root на хосте, а импорт
   выполняется в контейнере от непривилегированного пользователя `app` (uid 1000) и пишет рядом с
