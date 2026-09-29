@@ -526,6 +526,13 @@ async def aggregate_city(
             data_version=result.data_version,
             rows=metric_rows,
         )
+        # Источник помнит версию данных, которая сейчас видна на карте (ТЗ §2.3): по ней API
+        # выбирает снимок метрик без дорогих подзапросов на каждую ячейку
+        if dataset_id is not None:
+            await session.execute(
+                text("UPDATE datasets SET data_version = :version, updated_at = now() WHERE id = :dataset_id"),
+                {"version": result.data_version, "dataset_id": dataset_id},
+            )
 
     return result
 

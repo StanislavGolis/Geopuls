@@ -63,15 +63,11 @@ FROM cell_metrics cm
 JOIN city_cells cc
   ON cc.city_id = cm.city_id AND cc.resolution = cm.resolution AND cc.h3_index = cm.h3_index
 JOIN layers l ON l.id = cm.layer_id
+JOIN datasets d ON d.id = l.dataset_id
 JOIN cities c ON c.id = cm.city_id
 LEFT JOIN categories cat ON cat.id = cm.category_id
 WHERE c.slug = :city AND l.slug = :layer AND cm.resolution = :res
-  AND cm.data_version = (
-      SELECT m2.data_version FROM cell_metrics m2
-      WHERE m2.city_id = cm.city_id AND m2.layer_id = cm.layer_id
-      ORDER BY (m2.data_version = 'unknown'), m2.data_version DESC
-      LIMIT 1
-  )
+  AND cm.data_version = d.data_version
   AND (CAST(:category AS text) IS NULL OR cat.slug = :category)
   AND (
     NOT :use_bbox
@@ -89,15 +85,11 @@ SELECT l.slug AS layer, l.name_ru AS layer_name, l.metric_kind, l.unit, l.sort_o
        cm.value, cm.extras
 FROM cell_metrics cm
 JOIN layers l ON l.id = cm.layer_id
+JOIN datasets d ON d.id = l.dataset_id
 JOIN cities c ON c.id = cm.city_id
 LEFT JOIN categories cat ON cat.id = cm.category_id
 WHERE c.slug = :city AND cm.h3_index = :h3_index AND cm.resolution = :res AND l.is_active
-  AND cm.data_version = (
-      SELECT m2.data_version FROM cell_metrics m2
-      WHERE m2.city_id = cm.city_id AND m2.layer_id = cm.layer_id
-      ORDER BY (m2.data_version = 'unknown'), m2.data_version DESC
-      LIMIT 1
-  )
+  AND cm.data_version = d.data_version
 ORDER BY l.sort_order, cat.sort_order
 """
 
