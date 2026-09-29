@@ -181,7 +181,7 @@ test("переключение категории меняет тепловой 
     timeout: 30_000,
   });
 
-  await page.getByLabel("Категория").selectOption("pickup_point");
+  await page.getByLabel("Категория", { exact: true }).selectOption("pickup_point");
 
   await page.waitForFunction(
     () => {
@@ -456,8 +456,9 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   // Атрибуция обязательна и в экспорте (ODbL): первая строка — комментарий с источником
   expect(lines[0]).toContain("OpenStreetMap contributors");
   expect(lines[0]).toContain("ГЕОПУЛЬС");
-  // Колонки собраны из активных слоёв: базовый слой с вариантом и дополнительным показателем
-  expect(lines[1]).toBe("h3,competitors_cafe_value,competitors_cafe_count,lat,lon");
+  // Колонки собраны из активных слоёв: базовый слой с вариантом и его показателями (count, доля адресов)
+  expect(lines[1].startsWith("h3,competitors_cafe_value,competitors_cafe_count,")).toBe(true);
+  expect(lines[1].endsWith(",lat,lon")).toBe(true);
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
   expect(lines.length).toBe(gridBody.meta.cell_count + 2);
 });
@@ -483,7 +484,7 @@ test("вёрстка не ломается на 360 px, тач-цели дост
   expect(share!.height, "кнопка «Поделиться»").toBeGreaterThanOrEqual(44);
 
   // Категория выбирается чипами, кнопки — иконочные
-  await expect(page.getByLabel("Категория")).toBeHidden();
+  await expect(page.getByLabel("Категория", { exact: true })).toBeHidden();
   await expect(page.locator(".topbar__button-label").first()).toBeHidden();
 
   await page.screenshot({ path: "e2e/screenshots/mobile-360x640.png" });
@@ -578,7 +579,7 @@ test("мобильная вёрстка: чипы категорий, свёрн
 
   // Категория выбирается чипами, селект скрыт стилями
   await expect(page.getByTestId("chip-cafe")).toBeVisible();
-  await expect(page.getByLabel("Категория")).toBeHidden();
+  await expect(page.getByLabel("Категория", { exact: true })).toBeHidden();
 
   // Панель слоёв на телефоне свёрнута в кнопку — как и легенда
   await expect(page.getByRole("button", { name: /Слои/ })).toBeVisible();
@@ -586,10 +587,12 @@ test("мобильная вёрстка: чипы категорий, свёрн
   // Легенда свёрнута в кнопку: тело скрыто, пока не раскрыли (дизайн-спека §6)
   const toggle = page.getByRole("button", { name: /Легенда/ });
   await expect(toggle).toBeVisible();
-  await expect(page.getByText("Плотность, POI/км²")).toBeHidden();
+  // Классы легенды ищем внутри легенды: та же подпись есть и в панели слоёв
+  const legendBody = page.locator(".legend__body");
+  await expect(legendBody.getByText("Плотность, POI/км²")).toBeHidden();
 
   await toggle.click();
-  await expect(page.getByText("Плотность, POI/км²")).toBeVisible();
+  await expect(legendBody.getByText("Плотность, POI/км²")).toBeVisible();
   await expect(page.getByText("пусто")).toBeVisible();
 
   // Кнопки действий на телефоне — только иконки
