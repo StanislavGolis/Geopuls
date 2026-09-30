@@ -648,6 +648,13 @@ test("профиль города открывается по ссылке и о
   const panel = page.getByTestId("city-profile");
   await expect(panel).toBeVisible();
 
+  // Карточка обязана быть непрозрачной: прозрачный фон однажды уже ломал читаемость сводки
+  const background = await page
+    .locator(".city-profile__card")
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(background, "фон карточки профиля должен быть задан").not.toBe("rgba(0, 0, 0, 0)");
+  expect(background, "фон карточки не должен быть полупрозрачным").not.toContain("rgba(");
+
   // Сводка: площадь, охват и категории — то, что менеджер показывает руководству
   await expect(page.getByTestId("city-profile-facts")).toContainText("Площадь");
   await expect(page.getByTestId("city-profile-categories")).toContainText("Кофейни и кафе");

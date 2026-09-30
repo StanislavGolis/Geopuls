@@ -939,9 +939,11 @@ button:disabled {
   width: min(680px, 100%);
   max-height: 100%;
   overflow: hidden;
-  background: var(--surface);
-  border-radius: 10px;
-  box-shadow: var(--shadow-raised, 0 12px 32px rgb(15 23 42 / 24%));
+  /* Фон обязателен и непрозрачен: без него карточка просвечивает картой и текст не читается */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
 }
 
 .city-profile__head {
