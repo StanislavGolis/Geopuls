@@ -17,6 +17,8 @@ export type UrlState = {
   overlays: string | null;
   /** H3-индекс выбранной ячейки. */
   cell: string | null;
+  /** Ячейки в сравнении через запятую (2–5): сравнением делятся так же, как видом карты. */
+  compare: string | null;
   /** Открыт профиль города (сводка по данным, раздел плана развития). */
   profile: boolean;
   res: 8 | 9 | null;
@@ -34,11 +36,33 @@ export const EMPTY_URL_STATE: UrlState = {
   base: null,
   overlays: null,
   cell: null,
+  compare: null,
   profile: false,
   res: null,
   zoom: null,
   center: null,
 };
+
+/** Сколько ячеек можно сравнивать одновременно: больше — уже не таблица, а стена цифр. */
+export const MAX_COMPARE = 5;
+/** Сколько ячеек нужно, чтобы сравнение имело смысл. */
+export const MIN_COMPARE = 2;
+
+/**
+ * Разобрать список ячеек сравнения: валидные H3, без повторов, не больше ``MAX_COMPARE``.
+ *
+ * Мусор игнорируется, а не роняет интерфейс: ссылку мог испортить мессенджер, а не автор.
+ */
+export function parseCellList(value: string | null | undefined): string[] {
+  const parts = (value ?? "").split(",");
+  const cells: string[] = [];
+  for (const part of parts) {
+    const cell = parseH3Cell(part);
+    if (cell && !cells.includes(cell)) cells.push(cell);
+    if (cells.length >= MAX_COMPARE) break;
+  }
+  return cells;
+}
 
 export function parseH3Cell(value: string | null | undefined): string | null {
   const trimmed = value?.trim().toLowerCase() ?? "";
@@ -96,6 +120,7 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   const cell = parseH3Cell(params.get("cell"));
   const zoom = parseZoom(params.get("zoom"));
   const res = zoom !== null ? resolutionFromZoom(zoom) : parseResolution(params.get("res"));
+  const compare = parseCellList(params.get("compare"));
 
   return {
     city,
@@ -103,6 +128,7 @@ export function parseUrlState(source: string | Record<string, string | string[] 
     base,
     overlays,
     cell,
+    compare: compare.length > 0 ? compare.join(",") : null,
     // Профиль города — это экран, а не значение: в ссылке он означает «открой сводку»
     profile: params.get("profile") === "1",
     res,
@@ -127,6 +153,7 @@ export function buildSearch(state: Partial<UrlState>): string {
   const base = parseString(state.base);
   const overlays = parseString(state.overlays);
   const cell = parseH3Cell(state.cell);
+  const compare = parseCellList(state.compare);
 
   if (city) push("city", city);
   // `category` идёт рядом с `base` осознанно: так ссылка читается и старыми клиентами, и новыми
@@ -135,6 +162,7 @@ export function buildSearch(state: Partial<UrlState>): string {
   if (base) push("base", base);
   if (overlays) push("overlays", overlays);
   if (cell) push("cell", cell);
+  if (compare.length > 0) push("compare", compare.join(","));
   if (state.profile) push("profile", "1");
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {

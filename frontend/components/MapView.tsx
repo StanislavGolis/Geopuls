@@ -69,6 +69,8 @@ export type MapViewProps = {
   onViewChange: (view: { lat: number; lon: number; zoom: number }) => void;
   /** Выбранная ячейка — подсвечиваем контуром. */
   selectedCell?: string | null;
+  /** Ячейки сравнения: подсвечиваем все, чтобы видеть зоны на карте, а не только в таблице. */
+  compareCells?: string[];
   /**
    * Категория выбранного слоя: точки в ячейке показываем только по ней.
    *
@@ -158,6 +160,7 @@ export default function MapView({
   onCellSelect,
   onViewChange,
   selectedCell = null,
+  compareCells = [],
   category = null,
   initialView = null,
   styleUrl,
@@ -214,18 +217,21 @@ export default function MapView({
     }
   }, []);
 
-  /** Контур выбранной ячейки: показываем ровно ту ячейку, для которой открыт список объектов. */
-  const applySelected = useCallback((map: MapLibreMap, h3: string | null) => {
+  /**
+   * Контур выбранных ячеек: одна ячейка — карточка объектов, несколько — сравнение зон.
+   *
+   * Оба случая рисуются одним слоем: так подсветка не спорит сама с собой, а пользователь видит
+   * ровно то, о чём говорит панель.
+   */
+  const applySelected = useCallback((map: MapLibreMap, h3: string | null, compare: string[] = []) => {
     const source = map.getSource(SELECTED_SOURCE) as GeoJSONSource | undefined;
     if (!source) return;
-    const feature = h3
-      ? latestFeaturesRef.current.features.find((item) => item.properties.h3 === h3)
-      : undefined;
-    source.setData(
-      feature
-        ? ({ type: "FeatureCollection", features: [feature] } as unknown as GeoJSON.FeatureCollection)
-        : emptyCollection(),
+    const wanted = new Set<string>(compare);
+    if (h3) wanted.add(h3);
+    const features = latestFeaturesRef.current.features.filter((item) =>
+      wanted.has(String(item.properties.h3)),
     );
+    source.setData({ type: "FeatureCollection", features } as unknown as GeoJSON.FeatureCollection);
   }, []);
 
   const reportView = useCallback((map: MapLibreMap) => {
@@ -413,8 +419,8 @@ export default function MapView({
     if (!map || !map.getSource(CELLS_SOURCE)) return;
 
     applyGrid(map);
-    applySelected(map, selectedCell);
-  }, [grid, selectedCell, applyGrid, applySelected]);
+    applySelected(map, selectedCell, compareCells);
+  }, [grid, selectedCell, compareCells, applyGrid, applySelected]);
 
   /**
    * Точки объектов выбранной ячейки — только выбранной категории.

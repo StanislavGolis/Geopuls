@@ -98,7 +98,12 @@ if ($Only -ne 'backend') {
         catch { $webUp = $false }
 
         if ($webUp) {
-            Invoke-Step 'e2e' 'npx' @('playwright', 'test', '--reporter=line') $frontend | Out-Null
+            # Адреса задаём явно: переменные GEOPULS_WEB_URL/GEOPULS_API_URL остаются в сессии от
+            # прогонов против прода, и без этого «локальная» проверка незаметно уезжает на прод.
+            Invoke-Step 'e2e' 'npx' @('playwright', 'test', '--reporter=line') $frontend @{
+                GEOPULS_WEB_URL = 'http://localhost:3000'
+                GEOPULS_API_URL = 'http://127.0.0.1:8000'
+            } | Out-Null
         }
         else {
             Write-Host '  e2e              ПРОПУЩЕН (стек не поднят: pwsh -File tools/docker-up.ps1)' -ForegroundColor Yellow

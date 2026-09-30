@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_URL_STATE,
   buildSearch,
+  parseCellList,
   parseCenter,
   parseH3Cell,
   parseUrlState,
@@ -95,6 +96,7 @@ describe("buildSearch", () => {
       base: "competitors:cafe",
       overlays: "population,transport",
       cell: CELL,
+      compare: null,
       profile: false,
       res: 9 as const,
       zoom: 13,
@@ -108,6 +110,16 @@ describe("buildSearch", () => {
     expect(buildSearch({ city: "tomsk", profile: true })).toBe("city=tomsk&profile=1");
     expect(parseUrlState("?city=tomsk&profile=1").profile).toBe(true);
     expect(parseUrlState("?city=tomsk").profile).toBe(false);
+  });
+
+  it("сравнение зон: список ячеек в ссылке, мусор отбрасывается, лишние обрезаются", () => {
+    const cells = [CELL, "890b80db64bffff", "890b80db6cbffff"];
+    expect(buildSearch({ city: "tomsk", compare: cells.join(",") })).toBe(
+      `city=tomsk&compare=${cells.join(",")}`,
+    );
+    expect(parseCellList(`${CELL},не-ячейка,${CELL}`)).toEqual([CELL]);
+    expect(parseCellList("a,b,c,d,e,f,g")).toEqual([]);
+    expect(parseCellList("")).toEqual([]);
   });
 
   it("читает базовый слой и наложения из ссылки", () => {

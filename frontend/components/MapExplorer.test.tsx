@@ -49,6 +49,7 @@ const apiMock = {
   fetchLayerGrid: vi.fn(),
   fetchPois: vi.fn(),
   fetchCityProfile: vi.fn(),
+  fetchCellProfile: vi.fn(),
 };
 
 vi.mock("@/lib/api", async () => {
@@ -61,6 +62,7 @@ vi.mock("@/lib/api", async () => {
     fetchLayerGrid: (query: LayerGridQuery) => apiMock.fetchLayerGrid(query),
     fetchPois: (query: unknown) => apiMock.fetchPois(query),
     fetchCityProfile: (slug: string) => apiMock.fetchCityProfile(slug),
+    fetchCellProfile: (query: unknown) => apiMock.fetchCellProfile(query),
   };
 });
 
@@ -119,6 +121,7 @@ const PROFILE = {
       covered_count: 1,
       non_empty_count: 1,
       max_value: 17.1,
+      median_value: 17.1,
     },
   ],
   sources: [],
@@ -223,6 +226,20 @@ beforeEach(() => {
   apiMock.fetchLayerGrid.mockResolvedValue(GRID);
   apiMock.fetchPois.mockResolvedValue(POIS);
   apiMock.fetchCityProfile.mockResolvedValue(PROFILE);
+  apiMock.fetchCellProfile.mockResolvedValue({
+    metrics: [
+      {
+        layer: "competitors",
+        layer_name: "Конкуренты (объекты по категориям)",
+        category: "cafe",
+        metric_kind: "density",
+        unit: "POI/км²",
+        value: 17.1,
+        extras: { count: 2 },
+      },
+    ],
+    meta: { city: "tomsk", cell: "890b80db643ffff", res: 9, data_version: "2026-09-27", updated_at: null },
+  });
   window.history.replaceState(null, "", "/");
   // Кэш последнего ответа живёт в sessionStorage и переживает тесты — начинаем с чистого
   window.sessionStorage.clear();
@@ -459,6 +476,22 @@ describe("MapExplorer", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
     await waitFor(() => expect(screen.getByTestId("map-category").textContent).toBe("bar"));
+  });
+
+  it("режим сравнения: клик по гексу набирает зоны и попадает в ссылку", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("open-compare"));
+    // Пока зон меньше двух, панель объясняет, что делать — таблицы ещё нет
+    expect(await screen.findByTestId("compare-hint")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("click-cell"));
+    await waitFor(() => expect(window.location.search).toContain("compare=890b80db643ffff"));
+
+    // Повторный клик по той же зоне убирает её из набора
+    fireEvent.click(screen.getByTestId("click-cell"));
+    await waitFor(() => expect(window.location.search).not.toContain("compare="));
   });
 
   it("профиль города открывается кнопкой и живёт в ссылке", async () => {

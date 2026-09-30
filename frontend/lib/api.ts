@@ -328,6 +328,8 @@ export type ProfileLayer = {
   covered_count: number;
   non_empty_count: number;
   max_value: number;
+  /** Медиана по непустым ячейкам: сравнение зон идёт с ней, а не с «вердиктом» (ADR 0015). */
+  median_value: number | null;
 };
 
 export type CityProfile = {
@@ -338,6 +340,35 @@ export type CityProfile = {
   layers: ProfileLayer[];
   sources: LayerSource[];
 };
+
+/** Значение одного слоя в профиле ячейки: единица измерения и вариант слоя (категория). */
+export type CellMetric = {
+  layer: string;
+  layer_name: string;
+  category: string | null;
+  metric_kind: string;
+  unit: string | null;
+  value: number;
+  extras: Record<string, unknown> | null;
+};
+
+export type CellProfile = {
+  metrics: CellMetric[];
+  meta: {
+    city: string;
+    cell: string;
+    res: number;
+    data_version: string | null;
+    updated_at: string | null;
+  };
+};
+
+/** Профиль ячейки: значения всех слоёв. Основа сравнения зон — каждая зона читается одним запросом. */
+export function fetchCellProfile(query: { city: string; cell: string; res: number }): Promise<CellProfile> {
+  const cell = encodeURIComponent(query.cell);
+  const city = encodeURIComponent(query.city);
+  return requestJson<CellProfile>(`/api/v1/cells/${cell}?city=${city}&res=${query.res}`);
+}
 
 /** Профиль города: сводка по данным одним запросом (числа считает бэкенд, интерфейс их не складывает). */
 export function fetchCityProfile(slug: string): Promise<CityProfile> {

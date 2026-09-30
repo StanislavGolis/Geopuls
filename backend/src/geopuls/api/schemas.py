@@ -164,7 +164,11 @@ class ProfileCategoryOut(BaseModel):
 
 
 class ProfileLayerOut(BaseModel):
-    """Слой в профиле: метрика, покрытие и максимум — те же правила, что в легенде карты."""
+    """Слой в профиле: метрика, покрытие, максимум и медиана по городу.
+
+    Медиана нужна для сравнения зон: «плотность выше медианы города» — наблюдение, которое можно
+    проверить, в отличие от «зона перегрета» (ADR 0015).
+    """
 
     slug: str
     name: str
@@ -174,6 +178,8 @@ class ProfileLayerOut(BaseModel):
     covered_count: int
     non_empty_count: int
     max_value: float
+    #: Медиана по непустым ячейкам; None — у слоя нет значений в этой сетке
+    median_value: float | None = None
 
 
 class CityProfileOut(BaseModel):

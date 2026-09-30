@@ -101,11 +101,14 @@ ORDER BY cat.sort_order, cat.slug
 
 #: Покрытие слоя считается по числу ячеек сетки с метрикой, а не по числу строк: у базового слоя строк
 #: несколько на ячейку (по категориям), и «покрытие» иначе выглядело бы завышенным.
+#: Медиана — по непустым ячейкам: она нужна для честного сравнения зон («плотность выше медианы города»)
+#: и не подменяет собой выводов: решение принимает человек (ADR 0015).
 PROFILE_LAYERS_SQL = """
 SELECT l.slug, l.name_ru, l.metric_kind, l.unit, l.color,
        count(DISTINCT cm.h3_index) AS covered_count,
        count(DISTINCT cm.h3_index) FILTER (WHERE cm.value > 0) AS non_empty_count,
-       COALESCE(max(cm.value), 0) AS max_value
+       COALESCE(max(cm.value), 0) AS max_value,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY cm.value) FILTER (WHERE cm.value > 0) AS median_value
 FROM layers l
 LEFT JOIN cell_metrics cm
        ON cm.layer_id = l.id AND cm.city_id = :city_id AND cm.resolution = :res
@@ -245,6 +248,7 @@ async def get_city_profile(
                 non_empty_count=int(row["non_empty_count"]),
                 # Без округления: числа профиля обязаны совпадать с ответом по слою
                 max_value=float(row["max_value"]),
+                median_value=float(row["median_value"]) if row["median_value"] is not None else None,
             )
             for row in layer_rows
         ],

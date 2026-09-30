@@ -96,6 +96,16 @@ def test_profile_supports_conditional_request(client: TestClient) -> None:
     assert second.status_code == 304
 
 
+def test_profile_layer_median_is_within_range(client: TestClient) -> None:
+    """Медиана по непустым ячейкам нужна для сравнения зон: не больше максимума и не отрицательна."""
+    profile = client.get("/api/v1/meta/cities/tomsk/profile").json()
+
+    competitors = next(row for row in profile["layers"] if row["slug"] == "competitors")
+
+    assert competitors["median_value"] is not None
+    assert 0 <= competitors["median_value"] <= competitors["max_value"]
+
+
 def test_profile_404_for_unknown_city(client: TestClient) -> None:
     response = client.get("/api/v1/meta/cities/nowhere/profile")
 

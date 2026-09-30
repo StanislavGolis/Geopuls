@@ -1083,6 +1083,184 @@ button:disabled {
   padding-top: 10px;
 }
 
+/* ── Сравнение зон: «зона против зоны» (план развития, этап 2) ─────────────── */
+/* Панель снизу, поверх легенды, но клики по карте не перехватывает: их ждёт режим сравнения */
+.compare {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--line-height-attribution) + 8px);
+  z-index: 25;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
+.compare__card {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: 48vh;
+  overflow: hidden;
+  /* Фон обязателен и непрозрачен: карточка лежит поверх карты */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  pointer-events: auto;
+}
+
+.compare__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compare__subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.compare__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compare__button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.compare__button:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.compare__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.compare__close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.compare__scroll {
+  overflow: auto;
+}
+
+.compare__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.compare__th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-primary);
+  vertical-align: top;
+}
+
+.compare__cell {
+  display: block;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.compare__remove {
+  margin-top: 2px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.compare__remove:hover {
+  color: var(--text-primary);
+}
+
+.compare__row-title {
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.compare__row-unit {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.compare__value {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.compare__note,
+.compare__error {
+  padding: 12px 14px;
+}
+
+.compare__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.compare__error {
+  color: var(--text-primary);
+}
+
+.compare__footer-note {
+  margin: 0;
+  padding: 8px 14px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+}
+
 /* Возвращаемся в мобильный блок: ниже идут надстройки для узких экранов */
 @media (max-width: 640px) {
 .skeleton__hex,

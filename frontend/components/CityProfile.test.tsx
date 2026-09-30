@@ -37,6 +37,7 @@ const PROFILE: CityProfileData = {
       covered_count: 1538,
       non_empty_count: 341,
       max_value: 76.8817,
+      median_value: 17.4,
     },
     {
       slug: "transport_stops",
@@ -47,6 +48,7 @@ const PROFILE: CityProfileData = {
       covered_count: 1538,
       non_empty_count: 321,
       max_value: 51.2547,
+      median_value: 8.4,
     },
   ],
   sources: [

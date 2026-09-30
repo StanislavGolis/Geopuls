@@ -1,9 +1,10 @@
 "use client";
 
-import { BarChart3, Share2 } from "lucide-react";
+import { BarChart3, Scale, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import CityProfile from "@/components/CityProfile";
+import ComparePanel from "@/components/ComparePanel";
 import ExportMenu from "@/components/ExportMenu";
 import LayerPanel from "@/components/LayerPanel";
 import Legend from "@/components/Legend";
@@ -44,7 +45,7 @@ import {
   serializeLayerRef,
   type LayerRef,
 } from "@/lib/layers";
-import { EMPTY_URL_STATE, buildSearch, type UrlState } from "@/lib/urlState";
+import { EMPTY_URL_STATE, MAX_COMPARE, buildSearch, parseCellList, type UrlState } from "@/lib/urlState";
 
 export type MapExplorerProps = {
   /** URL стиля подложки (значение из окружения, см. docs/decisions/0002-basemap.md). */
@@ -99,6 +100,10 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [exporting, setExporting] = useState(false);
   /** Профиль города: сводка по данным. Открывается кнопкой и живёт в ссылке (`profile=1`). */
   const [profileOpen, setProfileOpen] = useState(initial.profile);
+  /** Ячейки в сравнении: клик по карте добавляет и убирает их. Список живёт в ссылке. */
+  const [compareRefs, setCompareRefs] = useState<string[]>(() => parseCellList(initial.compare));
+  /** Режим сравнения: пока он включён, клик по гексу набирает зоны, а не открывает карточку объектов. */
+  const [compareOpen, setCompareOpen] = useState(() => parseCellList(initial.compare).length > 0);
 
   const mapRef = useRef<MapViewHandle | null>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -225,13 +230,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       base: serializeLayerRef(baseRef),
       overlays: infoLayersKey || null,
       cell: selectedCell,
+      compare: compareRefs.join(",") || null,
       profile: profileOpen,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
-  }, [citySlug, baseRef, infoLayersKey, selectedCell, profileOpen, res, view]);
+  }, [citySlug, baseRef, infoLayersKey, selectedCell, compareRefs, profileOpen, res, view]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
   const categoryNames = useMemo(
@@ -309,9 +315,28 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     );
   }, []);
 
-  const handleCellSelect = useCallback((h3: string) => {
-    setSelectedCell(h3);
-  }, []);
+  /**
+   * Клик по гексу: в режиме сравнения он набирает зоны, иначе открывает карточку объектов.
+   *
+   * Два разных действия по одному жесту сознательно не смешиваются: иначе клик по третьей зоне
+   * затирал бы карточку, которую пользователь в это время читает.
+   */
+  const handleCellSelect = useCallback(
+    (h3: string) => {
+      if (!compareOpen) {
+        setSelectedCell(h3);
+        return;
+      }
+      setCompareRefs((current) =>
+        current.includes(h3)
+          ? current.filter((item) => item !== h3)
+          : current.length >= MAX_COMPARE
+            ? current
+            : [...current, h3],
+      );
+    },
+    [compareOpen],
+  );
 
   /** Смена варианта базового слоя: слой остаётся, меняется категория внутри него. */
   const selectCategory = useCallback((slug: string) => {
@@ -460,6 +485,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <button
             type="button"
             className="topbar__button"
+            onClick={() => setCompareOpen((value) => !value)}
+            disabled={!citySlug}
+            aria-pressed={compareOpen}
+            data-testid="open-compare"
+            title="Сравнить зоны: включается режим, клик по гексам набирает зоны"
+          >
+            <Scale size={16} aria-hidden="true" />
+            <span className="topbar__button-label">Сравнить</span>
+          </button>
+
+          <button
+            type="button"
+            className="topbar__button"
             onClick={() => setProfileOpen(true)}
             disabled={!citySlug}
             data-testid="open-profile"
@@ -504,6 +542,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             busy={status === "loading"}
             initialView={initialView}
             selectedCell={selectedCell}
+            // Зоны сравнения подсвечиваем тем же контуром: карта и таблица говорят об одном
+            compareCells={compareRefs}
             // Точки в ячейке — по той же категории, что и список объектов в панели
             category={baseCategory}
             onCellSelect={handleCellSelect}
@@ -611,6 +651,18 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             city={citySlug}
             cityName={city?.name}
             onClose={() => setProfileOpen(false)}
+          />
+        )}
+
+        {compareOpen && citySlug && (
+          <ComparePanel
+            city={citySlug}
+            cells={compareRefs}
+            // Разрешение берём у самой ячейки: состояние может опережать отрисованную сетку
+            res={resolutionOfCell(compareRefs[0] ?? "") ?? res}
+            onRemove={(h3) => setCompareRefs((current) => current.filter((item) => item !== h3))}
+            onClear={() => setCompareRefs([])}
+            onClose={() => setCompareOpen(false)}
           />
         )}
 

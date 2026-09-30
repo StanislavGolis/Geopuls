@@ -640,6 +640,30 @@ test("панель слоёв показывает основу карты, а �
   await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
 });
 
+test("сравнение зон показывает таблицу по двум гексам и живёт в ссылке", async ({ page, request }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const [first, second] = await nonEmptyCells(request, 9, 2);
+  expect(first && second, "нужны две непустые ячейки").toBeTruthy();
+
+  await page.goto(`/?city=tomsk&category=cafe&debug=1&compare=${first!.h3},${second!.h3}`);
+  await waitForStyle(page);
+
+  const panel = page.getByTestId("compare-panel");
+  await expect(panel).toBeVisible();
+
+  const table = page.getByTestId("compare-table");
+  await expect(table).toContainText(first!.h3);
+  await expect(table).toContainText(second!.h3);
+  // Единицы метрик обязательны: «Плотность, POI/км²» вместо голых чисел
+  await expect(table).toContainText("POI/км²");
+  // Вердиктов нет — только наблюдения (ADR 0015)
+  await expect(panel).not.toContainText("перегрев");
+
+  // Зона уходит из сравнения вместе со ссылкой
+  await page.getByTestId(`compare-remove-${second!.h3}`).click();
+  await expect(page).not.toHaveURL(new RegExp(second!.h3));
+});
+
 test("профиль города открывается по ссылке и объясняет данные", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${MAP_URL}&profile=1`);
