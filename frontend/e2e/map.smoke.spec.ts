@@ -252,8 +252,16 @@ test("клик по ячейке показывает объекты, точки
   await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
     timeout: 30_000,
   });
-  // Ждём, пока карта перестанет двигаться после подгонки по границам города
-  await page.waitForFunction(() => !window.__geopulsMap!.isMoving(), null, { timeout: 30_000 });
+  // Ждём, пока карта перестанет двигаться после подгонки по границам и подтянет тайлы: точка клика,
+  // посчитанная в движении, попадает в соседнюю ячейку (этот флейк видели на проде сразу после выката)
+  await page.waitForFunction(
+    () => {
+      const map = window.__geopulsMap!;
+      return !map.isMoving() && map.areTilesLoaded();
+    },
+    null,
+    { timeout: 30_000, polling: 500 },
+  );
   // И пока не отрисуются непустые ячейки: иначе точку клика выбрать не из чего
   await page.waitForFunction(
     () => {
@@ -268,12 +276,16 @@ test("клик по ячейке показывает объекты, точки
   );
   await expect(page.getByTestId("data-version")).toContainText(/\d{2}\.\d{2}\.\d{4}/);
 
-  // Сетку выбирает зум, и она меняется после подгонки по границам города: берём кандидатов
-  // из обеих сеток, а точку выбираем по той ячейке, что реально отрисована под курсором
-  const candidates = [
-    ...(await nonEmptyCells(request, 9, 20)),
-    ...(await nonEmptyCells(request, 8, 20)),
-  ];
+  // Сетку выбирает зум, и она меняется после подгонки по границам города: кандидатов берём из той
+  // сетки, что реально отрисована (разрешение закодировано вторым символом H3-индекса), иначе клик
+  // может уйти в ячейку соседнего разрешения и проверка URL станет случайной
+  const res = await page.evaluate(() => {
+    const feature = window.__geopulsMap!.queryRenderedFeatures({ layers: ["cells-fill"] })[0] as
+      | { properties?: { h3?: string } }
+      | undefined;
+    return Number((feature?.properties?.h3 ?? "89")[1]) === 9 ? 9 : 8;
+  });
+  const candidates = await nonEmptyCells(request, res, 40);
 
   /*
    * Точку клика считаем в координатах канваса. Карта есть и под панелью инструментов, и под
