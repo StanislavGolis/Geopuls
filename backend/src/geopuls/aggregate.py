@@ -89,7 +89,7 @@ class AggregateResult:
     city_area_km2: float = 0.0
     grid_area_km2: dict[int, float] = field(default_factory=dict)
     density_breaks: dict[str, list[float]] = field(default_factory=dict)
-    #: Сколько строк метрик записано в `cell_metrics` (слой «Конкуренты»)
+    #: Сколько строк метрик записано в `cell_metrics` — по всем слоям каталога, не только по конкурентам
     metrics_written: int = 0
     #: Версия данных, под которой записан снимок метрик
     data_version: str | None = None
@@ -118,7 +118,7 @@ class AggregateResult:
         breaks = ", ".join(f"{slug}: {values}" for slug, values in sorted(self.density_breaks.items()))
         lines.append(f"Границы классов легенды (POI/км²): {breaks}")
         if self.metrics_written:
-            lines.append(f"Метрики слоя «Конкуренты»: строк {self.metrics_written}, версия данных {self.data_version}")
+            lines.append(f"Метрики слоёв: строк {self.metrics_written}, версия данных {self.data_version}")
         lines.append(f"Время агрегации: {self.seconds:.1f} с")
         return "\n".join(lines)
 
