@@ -1,8 +1,9 @@
 "use client";
 
-import { Share2 } from "lucide-react";
+import { BarChart3, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import CityProfile from "@/components/CityProfile";
 import ExportMenu from "@/components/ExportMenu";
 import LayerPanel from "@/components/LayerPanel";
 import Legend from "@/components/Legend";
@@ -96,6 +97,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   );
   const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
   const [exporting, setExporting] = useState(false);
+  /** Профиль города: сводка по данным. Открывается кнопкой и живёт в ссылке (`profile=1`). */
+  const [profileOpen, setProfileOpen] = useState(initial.profile);
 
   const mapRef = useRef<MapViewHandle | null>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -222,12 +225,13 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       base: serializeLayerRef(baseRef),
       overlays: infoLayersKey || null,
       cell: selectedCell,
+      profile: profileOpen,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
-  }, [citySlug, baseRef, infoLayersKey, selectedCell, res, view]);
+  }, [citySlug, baseRef, infoLayersKey, selectedCell, profileOpen, res, view]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
   const categoryNames = useMemo(
@@ -456,6 +460,18 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <button
             type="button"
             className="topbar__button"
+            onClick={() => setProfileOpen(true)}
+            disabled={!citySlug}
+            data-testid="open-profile"
+            title="Профиль города: сводка по данным"
+          >
+            <BarChart3 size={16} aria-hidden="true" />
+            <span className="topbar__button-label">Профиль города</span>
+          </button>
+
+          <button
+            type="button"
+            className="topbar__button"
             onClick={handleShare}
             data-testid="share"
             title="Скопировать ссылку на текущий вид"
@@ -587,6 +603,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             categoryNames={categoryNames}
             metrics={cellMetrics}
             onClose={() => setSelectedCell(null)}
+          />
+        )}
+
+        {profileOpen && citySlug && (
+          <CityProfile
+            city={citySlug}
+            cityName={city?.name}
+            onClose={() => setProfileOpen(false)}
           />
         )}
 

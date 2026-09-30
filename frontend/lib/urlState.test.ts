@@ -95,12 +95,19 @@ describe("buildSearch", () => {
       base: "competitors:cafe",
       overlays: "population,transport",
       cell: CELL,
+      profile: false,
       res: 9 as const,
       zoom: 13,
       center: { lat: 56.473, lon: 85.024 },
     };
 
     expect(parseUrlState(buildSearch(original))).toEqual(original);
+  });
+
+  it("профиль города — состояние ссылки: им делятся, а не открывают заново", () => {
+    expect(buildSearch({ city: "tomsk", profile: true })).toBe("city=tomsk&profile=1");
+    expect(parseUrlState("?city=tomsk&profile=1").profile).toBe(true);
+    expect(parseUrlState("?city=tomsk").profile).toBe(false);
   });
 
   it("читает базовый слой и наложения из ссылки", () => {

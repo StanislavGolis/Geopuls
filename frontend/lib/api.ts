@@ -301,6 +301,49 @@ export function fetchCategories(): Promise<CategoryMeta[]> {
   return requestJson<CategoryMeta[]>("/api/v1/meta/categories");
 }
 
+/** Охват сетки города: сколько ячеек и как они заполнены данными (профиль города). */
+export type ProfileGrid = {
+  res: number;
+  cells: number;
+  cells_non_empty: number;
+  /** Доля пустых ячеек, %: «нет размеченных объектов» — это не «нет бизнеса». */
+  empty_share: number;
+  poi_count: number;
+};
+
+export type ProfileCategory = {
+  slug: string;
+  name: string;
+  color: string;
+  poi_count: number;
+  share: number | null;
+};
+
+export type ProfileLayer = {
+  slug: string;
+  name: string;
+  metric_kind: string;
+  unit: string | null;
+  color: string;
+  covered_count: number;
+  non_empty_count: number;
+  max_value: number;
+};
+
+export type CityProfile = {
+  type: "CityProfile";
+  city: CityMeta;
+  grid: ProfileGrid;
+  categories: ProfileCategory[];
+  layers: ProfileLayer[];
+  sources: LayerSource[];
+};
+
+/** Профиль города: сводка по данным одним запросом (числа считает бэкенд, интерфейс их не складывает). */
+export function fetchCityProfile(slug: string): Promise<CityProfile> {
+  return requestJson<CityProfile>(`/api/v1/meta/cities/${encodeURIComponent(slug)}/profile`);
+}
+
 export function fetchCells(query: CellsQuery): Promise<CellsResponse> {
   return requestJson<CellsResponse>("/api/v1/cells", {
     city: query.city,

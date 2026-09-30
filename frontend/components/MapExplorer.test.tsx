@@ -48,6 +48,7 @@ const apiMock = {
   fetchLayers: vi.fn(),
   fetchLayerGrid: vi.fn(),
   fetchPois: vi.fn(),
+  fetchCityProfile: vi.fn(),
 };
 
 vi.mock("@/lib/api", async () => {
@@ -59,6 +60,7 @@ vi.mock("@/lib/api", async () => {
     fetchLayers: () => apiMock.fetchLayers(),
     fetchLayerGrid: (query: LayerGridQuery) => apiMock.fetchLayerGrid(query),
     fetchPois: (query: unknown) => apiMock.fetchPois(query),
+    fetchCityProfile: (slug: string) => apiMock.fetchCityProfile(slug),
   };
 });
 
@@ -99,6 +101,27 @@ const CITY: CityMeta = {
   bbox: { min_lat: 56.379, min_lon: 84.828, max_lat: 56.571, max_lon: 85.15 },
   data_version: "2026-09-27",
   updated_at: "2026-09-28T12:39:25Z",
+};
+
+/** Профиль города: минимальная сводка, достаточная, чтобы панель отрисовалась. */
+const PROFILE = {
+  type: "CityProfile" as const,
+  city: CITY,
+  grid: { res: 9, cells: 1, cells_non_empty: 1, empty_share: 0, poi_count: 2 },
+  categories: [{ slug: "cafe", name: "Кофейни и кафе", color: "#1f6fb2", poi_count: 2, share: 100 }],
+  layers: [
+    {
+      slug: "competitors",
+      name: "Конкуренты (объекты по категориям)",
+      metric_kind: "density",
+      unit: "POI/км²",
+      color: "#1f6fb2",
+      covered_count: 1,
+      non_empty_count: 1,
+      max_value: 17.1,
+    },
+  ],
+  sources: [],
 };
 
 const CATEGORIES: CategoryMeta[] = [
@@ -199,6 +222,7 @@ beforeEach(() => {
   apiMock.fetchLayers.mockResolvedValue({ layers: LAYERS, data_version: "2026-09-27" });
   apiMock.fetchLayerGrid.mockResolvedValue(GRID);
   apiMock.fetchPois.mockResolvedValue(POIS);
+  apiMock.fetchCityProfile.mockResolvedValue(PROFILE);
   window.history.replaceState(null, "", "/");
   // Кэш последнего ответа живёт в sessionStorage и переживает тесты — начинаем с чистого
   window.sessionStorage.clear();
@@ -435,6 +459,24 @@ describe("MapExplorer", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
     await waitFor(() => expect(screen.getByTestId("map-category").textContent).toBe("bar"));
+  });
+
+  it("профиль города открывается кнопкой и живёт в ссылке", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("open-profile"));
+
+    const panel = await screen.findByTestId("city-profile");
+    expect(panel.textContent).toContain("Томск");
+    expect(apiMock.fetchCityProfile).toHaveBeenCalledWith("tomsk");
+    // Ссылкой на сводку делятся: состояние уходит в адресную строку
+    await waitFor(() => expect(window.location.search).toContain("profile=1"));
+
+    fireEvent.click(screen.getByTestId("city-profile-close"));
+
+    await waitFor(() => expect(screen.queryByTestId("city-profile")).toBeNull());
+    await waitFor(() => expect(window.location.search).not.toContain("profile=1"));
   });
 
   it("включение слоя меняет запрос и попадает в ссылку", async () => {

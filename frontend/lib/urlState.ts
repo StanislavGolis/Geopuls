@@ -17,6 +17,8 @@ export type UrlState = {
   overlays: string | null;
   /** H3-индекс выбранной ячейки. */
   cell: string | null;
+  /** Открыт профиль города (сводка по данным, раздел плана развития). */
+  profile: boolean;
   res: 8 | 9 | null;
   zoom: number | null;
   center: { lat: number; lon: number } | null;
@@ -32,6 +34,7 @@ export const EMPTY_URL_STATE: UrlState = {
   base: null,
   overlays: null,
   cell: null,
+  profile: false,
   res: null,
   zoom: null,
   center: null,
@@ -100,6 +103,8 @@ export function parseUrlState(source: string | Record<string, string | string[] 
     base,
     overlays,
     cell,
+    // Профиль города — это экран, а не значение: в ссылке он означает «открой сводку»
+    profile: params.get("profile") === "1",
     res,
     zoom,
     // Центр имеет смысл только вместе с зумом: иначе карта остаётся привязана к границам города
@@ -130,6 +135,7 @@ export function buildSearch(state: Partial<UrlState>): string {
   if (base) push("base", base);
   if (overlays) push("overlays", overlays);
   if (cell) push("cell", cell);
+  if (state.profile) push("profile", "1");
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {
     push("zoom", state.zoom.toFixed(2));

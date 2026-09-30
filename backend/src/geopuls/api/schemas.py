@@ -141,6 +141,56 @@ class LayersResponse(BaseModel):
     data_version: str | None = None
 
 
+class ProfileGridOut(BaseModel):
+    """Охват сетки города: сколько ячеек и как они заполнены данными конкурентов."""
+
+    res: int
+    cells: int
+    cells_non_empty: int
+    #: Доля пустых ячеек, %. Пустая ячейка — это не «нет бизнеса», а «нет размеченных объектов»:
+    #: именно эту разницу профиль города и обязан объяснять (ТЗ §4.2).
+    empty_share: float
+    poi_count: int
+
+
+class ProfileCategoryOut(BaseModel):
+    """Категория конкурентов в профиле города: сколько объектов и какую долю они занимают."""
+
+    slug: str
+    name: str
+    color: str
+    poi_count: int
+    share: float | None = None
+
+
+class ProfileLayerOut(BaseModel):
+    """Слой в профиле: метрика, покрытие и максимум — те же правила, что в легенде карты."""
+
+    slug: str
+    name: str
+    metric_kind: str
+    unit: str | None = None
+    color: str
+    covered_count: int
+    non_empty_count: int
+    max_value: float
+
+
+class CityProfileOut(BaseModel):
+    """Профиль города: сводка, по которой видно, что это за город и насколько полны данные.
+
+    Не содержит выводов и рекомендаций (ADR 0015) — только наблюдения: сколько объектов, по каким
+    категориям и слоям, из каких источников и на какую дату.
+    """
+
+    type: Literal["CityProfile"] = "CityProfile"
+    city: CityOut
+    grid: ProfileGridOut
+    categories: list[ProfileCategoryOut] = Field(default_factory=list)
+    layers: list[ProfileLayerOut] = Field(default_factory=list)
+    sources: list[LayerSourceOut] = Field(default_factory=list)
+
+
 class LayerCellsMeta(BaseModel):
     """Метаданные слоя: единица измерения, шкала легенды и источники видимых данных."""
 

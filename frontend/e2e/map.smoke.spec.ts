@@ -640,6 +640,27 @@ test("панель слоёв показывает основу карты, а �
   await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
 });
 
+test("профиль города открывается по ссылке и объясняет данные", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${MAP_URL}&profile=1`);
+  await waitForStyle(page);
+
+  const panel = page.getByTestId("city-profile");
+  await expect(panel).toBeVisible();
+
+  // Сводка: площадь, охват и категории — то, что менеджер показывает руководству
+  await expect(page.getByTestId("city-profile-facts")).toContainText("Площадь");
+  await expect(page.getByTestId("city-profile-categories")).toContainText("Кофейни и кафе");
+  await expect(page.getByTestId("city-profile-sources")).toContainText("OpenStreetMap");
+  // Пустые ячейки объясняются прямо, а не остаются загадкой
+  await expect(panel).toContainText("а не что бизнеса нет в городе");
+
+  // Ссылкой делятся: закрытие убирает состояние из адреса
+  await page.getByTestId("city-profile-close").click();
+  await expect(panel).toHaveCount(0);
+  await expect(page).not.toHaveURL(/profile=1/);
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
