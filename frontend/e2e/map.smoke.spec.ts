@@ -19,6 +19,7 @@ type MapDebug = {
   project: (lngLat: [number, number]) => { x: number; y: number };
   getCenter: () => { lat: number; lng: number };
   queryRenderedFeatures: (options?: unknown, layers?: unknown) => { id?: string }[];
+  querySourceFeatures: (sourceId: string, filter?: unknown) => unknown[];
   getZoom: () => number;
   getCanvas: () => HTMLCanvasElement;
 };
@@ -241,11 +242,12 @@ async function densestCell(
   return cells[0];
 }
 
-test("клик по ячейке показывает объекты, подсвечивает её и пишет состояние в URL", async ({
+test("клик по ячейке показывает объекты, точки бизнесов и числа включённого слоя", async ({
   page,
   request,
 }) => {
-  await page.goto(MAP_URL);
+  // Дополнительный слой включаем ссылкой: панель обязана показать его числа по выбранной ячейке
+  await page.goto(`${MAP_URL}&overlays=workplaces`);
   await waitForStyle(page);
   await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
     timeout: 30_000,
@@ -336,6 +338,16 @@ test("клик по ячейке показывает объекты, подсв
   await expect(page.getByTestId("poi-count")).toContainText(/объект/);
   await expect(panel.getByRole("link", { name: "OpenStreetMap" }).first()).toBeVisible();
   await expect(panel).not.toContainText("нет размеченных объектов");
+
+  // Дополнительный слой отвечает числами по этой же ячейке — рядом со списком её объектов
+  await expect(page.getByTestId("cell-metrics")).toContainText("Доля площади");
+
+  // Карта показывает, где именно стоят бизнесы выбранной ячейки: слой точек получает координаты
+  await expect
+    .poll(() => page.evaluate(() => window.__geopulsMap?.querySourceFeatures("cell-pois").length ?? 0), {
+      message: "точки объектов выбранной ячейки должны появиться на карте",
+    })
+    .toBeGreaterThan(0);
 
   // Состояние уходит в адресную строку: ссылкой можно поделиться
   const url = new URL(page.url());
@@ -530,14 +542,14 @@ test("панель слоёв показывает основу карты, а �
   const panel = page.getByLabel("Слои карты");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("layer-base")).toContainText("Конкуренты");
-  await expect(panel.getByTestId("layer-transport")).not.toBeChecked();
+  await expect(panel.getByTestId("layer-transport_stops")).not.toBeChecked();
 
   // Ссылку собирает сама карта: набор слоёв должен быть в адресе, иначе им нельзя поделиться
   await expect(page).toHaveURL(/base=competitors(:|%3A)cafe/);
 
-  await panel.getByTestId("layer-transport").check();
+  await panel.getByTestId("layer-transport_stops").check();
 
-  await expect(page).toHaveURL(/overlays=transport/);
+  await expect(page).toHaveURL(/overlays=transport_stops/);
   // Источник с лицензией виден в панели: слой без атрибуции показывать нельзя
   await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
 });
