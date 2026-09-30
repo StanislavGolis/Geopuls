@@ -47,7 +47,10 @@
 # через extra_hosts). Вход — пароль code-server, TLS выпускает Caddy: наружу порт редактора не открыт.
 code.{$DOMAIN:localhost} {
 	encode zstd gzip
-	reverse_proxy host.docker.internal:8080
+	# Адрес редактора задаётся переменной CODE_UPSTREAM (см. .env.example и docs/deploy.md).
+	# Почему не host.docker.internal: в этом Docker он резолвится в docker0 (172.17.0.1), где редактор
+	# не слушает — редактор слушает шлюз сети проекта, и Caddy доходит до него только по этому адресу.
+	reverse_proxy {$CODE_UPSTREAM}
 
 	header {
 		X-Content-Type-Options "nosniff"

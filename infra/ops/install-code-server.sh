@@ -16,12 +16,26 @@
 set -euo pipefail
 
 CODE_SERVER_VERSION="${CODE_SERVER_VERSION:-4.139.1}"
-BIND_ADDR="${BIND_ADDR:-127.0.0.1:8080}"
 CONFIG_DIR="/root/.config/code-server"
 CONFIG="$CONFIG_DIR/config.yaml"
 # Редактор на 2 vCPU рядом с прод-стеком: без лимита он в пике может «съесть» всю память,
 # а на этой машине живут PostgreSQL и API. Лимит — страховка прода, не оптимизация.
 MEMORY_MAX="${MEMORY_MAX:-1500M}"
+# Порт один и тот же, адрес зависит от того, кто к редактору ходит.
+PORT="${PORT:-8080}"
+COMPOSE_NETWORK="${COMPOSE_NETWORK:-geopuls_default}"
+
+# Куда слушать редактору. Не loopback: Caddy работает в контейнере, и 127.0.0.1 для него — он сам,
+# поэтому такой bind даёт 502 (проверено на живом сервере). Берём адрес хоста в сети compose —
+# он доступен контейнерам проекта и не доступен из интернета, в отличие от 0.0.0.0.
+if [ -z "${BIND_ADDR:-}" ]; then
+    gateway="$(docker network inspect "$COMPOSE_NETWORK" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+    if [ -n "$gateway" ]; then
+        BIND_ADDR="${gateway}:${PORT}"
+    else
+        BIND_ADDR="127.0.0.1:${PORT}"
+    fi
+fi
 
 log() { echo "[$(date -Is)] $*"; }
 
@@ -88,8 +102,11 @@ EOF
 
 log "запуск сервиса"
 systemctl daemon-reload
-systemctl enable --now code-server@root >/dev/null 2>&1 || systemctl restart code-server@root
-sleep 3
+systemctl enable code-server@root >/dev/null 2>&1 || true
+# Перезапуск обязателен и при первом запуске, и при повторном: конфиг мог измениться (bind-addr),
+# а сервис, который «уже active», ничего не перечитает — именно на этом шаге мы ловили 502.
+systemctl restart code-server@root
+sleep 4
 systemctl is-active code-server@root
 
 log "проверка локального ответа"
@@ -100,4 +117,13 @@ if [ "${code:-000}" != "200" ] && [ "${code:-000}" != "302" ]; then
     exit 1
 fi
 
+case "$BIND_ADDR" in
+    127.0.0.1:*|localhost:*)
+        log "ПРЕДУПРЕЖДЕНИЕ: редактор слушает loopback, а Caddy работает в контейнере — поддомен вернёт 502."
+        log "Проверьте, что сеть $COMPOSE_NETWORK существует: docker network inspect $COMPOSE_NETWORK"
+        ;;
+esac
+
 log "готово. Дальше: расширения (infra/ops/install-dev-tools.sh) и поддомен в Caddy"
+log "Пропишите в /opt/geopuls/.env строку (Caddy иначе вернёт 502): CODE_UPSTREAM=${BIND_ADDR}"
+log "и перезапустите прокси: cd /opt/geopuls && docker compose --profile prod up -d caddy"

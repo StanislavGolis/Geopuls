@@ -83,6 +83,10 @@ services:
     profiles: ["prod"]
     environment:
       DOMAIN: ${DOMAIN:-localhost}
+      # Куда проксировать поддомен редактора (code-server на хосте). Адрес — шлюз сети проекта:
+      # редактор слушает его, потому что Caddy живёт в контейнере и loopback хоста ему не виден.
+      # Точное значение печатает infra/ops/install-code-server.sh.
+      CODE_UPSTREAM: ${CODE_UPSTREAM:-host.docker.internal:8080}
     volumes:
       - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
