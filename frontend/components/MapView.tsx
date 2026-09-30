@@ -69,6 +69,14 @@ export type MapViewProps = {
   onViewChange: (view: { lat: number; lon: number; zoom: number }) => void;
   /** Выбранная ячейка — подсвечиваем контуром. */
   selectedCell?: string | null;
+  /**
+   * Категория выбранного слоя: точки в ячейке показываем только по ней.
+   *
+   * Без фильтра клик по гексу подсвечивал бы все размеченные объекты города сразу, и обещание
+   * «конкуренты в этой ячейке» подменялось бы другим — «всё, что есть в OSM». Список объектов в
+   * панели фильтруется этой же категорией: карта и список обязаны показывать одно и то же.
+   */
+  category?: string | null;
   /** Стартовый вид из URL: если задан, вместо границ города показываем его. */
   initialView?: { lat: number; lon: number; zoom: number } | null;
   /** URL стиля подложки (см. docs/decisions/0002-basemap.md). */
@@ -92,8 +100,14 @@ function poiCollection(items: PoiItem[]): GeoJSON.FeatureCollection {
     type: "FeatureCollection",
     features: items.map((item) => ({
       type: "Feature",
-      id: `${item.osm_type}-${item.osm_id}`,
-      properties: { name: item.name ?? "" },
+      // `id` фичи здесь не задаём: MapLibre для GeoJSON приводит его к числу, и строковый ключ OSM
+      // превратился бы в мусор. Идентификатор объекта живёт в свойствах — по нему и сопоставляем.
+      properties: {
+        name: item.name ?? "",
+        osm: `${item.osm_type}-${item.osm_id}`,
+        // Категории точки: видно, к чему относится объект (и это проверяется в E2E)
+        categories: item.categories,
+      },
       geometry: { type: "Point", coordinates: [item.lon, item.lat] },
     })),
   } as GeoJSON.FeatureCollection;
@@ -144,6 +158,7 @@ export default function MapView({
   onCellSelect,
   onViewChange,
   selectedCell = null,
+  category = null,
   initialView = null,
   styleUrl,
   ref,
@@ -402,11 +417,13 @@ export default function MapView({
   }, [grid, selectedCell, applyGrid, applySelected]);
 
   /**
-   * Точки объектов выбранной ячейки.
+   * Точки объектов выбранной ячейки — только выбранной категории.
    *
    * Запрос делает карта, а список объектов — панель: каждый компонент запрашивает то, что показывает,
-   * а ответ `/pois` кэшируется браузером, поэтому дублирование бесплатно. Ошибку здесь глушим
-   * осознанно: точки — подсказка «где именно», а не данные, и панель сообщит о проблеме сама.
+   * а ответ `/pois` кэшируется браузером, поэтому дублирование бесплатно. Фильтр по категории при
+   * этом обязателен: без него карта подсвечивала бы все объекты гекса, а панель — только конкуренцию.
+   * Ошибку здесь глушим осознанно: точки — подсказка «где именно», а не данные, и панель сообщит о
+   * проблеме сама.
    */
   useEffect(() => {
     if (!selectedCell) {
@@ -422,6 +439,7 @@ export default function MapView({
           city: city.slug,
           cell: selectedCell,
           res: cellResolution,
+          category: category ?? undefined,
           limit: POIS_LIMIT,
         });
         if (!cancelled) setCellPois(response.items);
@@ -433,7 +451,7 @@ export default function MapView({
     return () => {
       cancelled = true;
     };
-  }, [city.slug, city.h3_res, selectedCell]);
+  }, [category, city.slug, city.h3_res, selectedCell]);
 
   // Точки на карте: держим слой поверх заливки и подсветки, чтобы гекс не прятал свои же объекты
   useEffect(() => {

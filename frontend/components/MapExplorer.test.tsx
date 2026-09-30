@@ -19,14 +19,18 @@ vi.mock("./MapView", () => ({
     grid,
     onCellSelect,
     selectedCell,
+    category,
   }: {
     grid: LayerGrid | null;
     onCellSelect: (h3: string) => void;
     selectedCell: string | null;
+    category?: string | null;
   }) => (
     <div data-testid="map">
       cells={grid?.cells.h3.length ?? 0}
       <span data-testid="selected-cell">{selectedCell ?? ""}</span>
+      {/* Категория, которой карта фильтрует точки ячейки: должна совпадать со списком объектов */}
+      <span data-testid="map-category">{category ?? ""}</span>
       <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
         клик по ячейке
       </button>
@@ -416,6 +420,21 @@ describe("MapExplorer", () => {
 
     await waitFor(() => expect(screen.queryByTestId("poi-panel")).toBeNull());
     expect(window.location.search).not.toContain("cell=");
+  });
+
+  it("карта фильтрует точки ячейки той же категорией, что и список объектов", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    // Иначе клик по гексу подсвечивал бы все бизнесы города, а панель показывала бы только конкуренцию
+    expect(screen.getByTestId("map-category").textContent).toBe("cafe");
+
+    const select = screen.getByLabelText("Категория") as HTMLSelectElement;
+    select.value = "bar";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => expect(screen.getByTestId("map-category").textContent).toBe("bar"));
   });
 
   it("включение слоя меняет запрос и попадает в ссылку", async () => {

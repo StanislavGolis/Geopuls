@@ -11,6 +11,14 @@ import { expect, test } from "@playwright/test";
 /** URL карты с включённой отладочной ссылкой на объект карты (`?debug=1`). */
 const MAP_URL = "/?city=tomsk&category=cafe&debug=1";
 
+/**
+ * Адрес API для проверок, которые ходят мимо страницы.
+ *
+ * По умолчанию локальный стек (`web` на 3000, `api` на 8000 — это разные порты). При прогоне против
+ * прода API живёт на том же домене, поэтому там задаётся `GEOPULS_API_URL=https://<домен>`.
+ */
+const API_BASE = process.env.GEOPULS_API_URL ?? "http://127.0.0.1:8000";
+
 type MapDebug = {
   getLayer: (id: string) => unknown;
   getStyle: () => { layers: { id: string }[]; sources: Record<string, unknown> } | undefined;
@@ -206,7 +214,7 @@ async function nonEmptyCells(
   res = 9,
   limit = 25,
 ): Promise<{ h3: string; count: number; lat: number; lon: number }[]> {
-  const apiBase = process.env.GEOPULS_API_URL ?? "http://127.0.0.1:8000";
+  const apiBase = API_BASE;
   const response = await request.get(
     `${apiBase}/api/v1/map?city=tomsk&base=competitors:cafe&res=${res}`,
   );
@@ -262,6 +270,36 @@ test("клик по ячейке показывает объекты, точки
     null,
     { timeout: 30_000, polling: 500 },
   );
+
+  // Подгонка по границам города стартует уже после загрузки стиля, поэтому «карта не движется» в
+  // первый момент ничего не гарантирует. Ждём, пока zoom и центр перестанут меняться между опросами:
+  // иначе точка, посчитанная до подгонки, указывает в другую ячейку, и клик уходит не туда.
+  const mapView = () =>
+    page.evaluate(() => {
+      const map = window.__geopulsMap!;
+      const center = map.getCenter();
+      return {
+        zoom: Number(map.getZoom().toFixed(5)),
+        lat: Number(center.lat.toFixed(6)),
+        lon: Number(center.lng.toFixed(6)),
+      };
+    });
+  let previousView = await mapView();
+  await expect
+    .poll(
+      async () => {
+        const current = await mapView();
+        const unchanged = JSON.stringify(current) === JSON.stringify(previousView);
+        previousView = current;
+        return unchanged;
+      },
+      {
+        message: "вид карты должен устояться перед выбором точки клика",
+        timeout: 30_000,
+        intervals: [500],
+      },
+    )
+    .toBe(true);
   // И пока не отрисуются непустые ячейки: иначе точку клика выбрать не из чего
   await page.waitForFunction(
     () => {
@@ -354,12 +392,48 @@ test("клик по ячейке показывает объекты, точки
   // Дополнительный слой отвечает числами по этой же ячейке — рядом со списком её объектов
   await expect(page.getByTestId("cell-metrics")).toContainText("Доля площади");
 
-  // Карта показывает, где именно стоят бизнесы выбранной ячейки: слой точек получает координаты
+  // Карта показывает, где именно стоят конкуренты выбранной ячейки, и только они: сверяем точки с
+  // ответом API по той же ячейке и категории (без фильтра на карте оказались бы все объекты OSM).
+  // Ячейку берём из адресной строки — это то, что карта действительно выбрала и что видит пользователь.
+  const selectedH3 = new URL(page.url()).searchParams.get("cell") ?? cell.h3;
+  const cellRes = Number(selectedH3[1]) === 9 ? 9 : 8;
+  const apiPois = await request.get(
+    `${API_BASE}/api/v1/pois?city=tomsk&cell=${selectedH3}&res=${cellRes}&category=cafe&limit=200`,
+  );
+  expect(apiPois.ok()).toBe(true);
+  const expectedIds = (
+    (await apiPois.json()) as { items: { osm_type: string; osm_id: number }[] }
+  ).items
+    .map((item) => `${item.osm_type}-${item.osm_id}`)
+    .sort();
+
+  // querySourceFeatures отдаёт фичи с дублями (GeoJSON-источник раскладывается по тайлам), поэтому
+  // сравниваем уникальные ключи объектов — они лежат в свойствах (`id` фичи MapLibre приводит к числу)
+  const poiKeys = () =>
+    page.evaluate(() => {
+      const features = window.__geopulsMap!.querySourceFeatures("cell-pois") as {
+        properties?: { osm?: string };
+      }[];
+      return [...new Set(features.map((feature) => String(feature.properties?.osm ?? "")))].sort();
+    });
+
   await expect
-    .poll(() => page.evaluate(() => window.__geopulsMap?.querySourceFeatures("cell-pois").length ?? 0), {
-      message: "точки объектов выбранной ячейки должны появиться на карте",
+    .poll(poiKeys, {
+      message: "точки ячейки должны совпасть со списком объектов выбранной категории",
     })
-    .toBeGreaterThan(0);
+    .toEqual(expectedIds);
+
+  // И ни одного объекта без выбранной категории: у объекта бывают и другие категории (мультикатегорийность),
+  // но чужой объект, не относящийся к «кафе», на карте появиться не должен
+  const poiCategories = await page.evaluate(() =>
+    (
+      window.__geopulsMap!.querySourceFeatures("cell-pois") as {
+        properties?: { categories?: string[] };
+      }[]
+    ).map((feature) => feature.properties?.categories ?? []),
+  );
+  expect(poiCategories.length).toBeGreaterThan(0);
+  expect(poiCategories.every((categories) => categories.includes("cafe"))).toBe(true);
 
   // Состояние уходит в адресную строку: ссылкой можно поделиться
   const url = new URL(page.url());
@@ -466,7 +540,7 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   ]);
   expect(csv.suggestedFilename()).toMatch(/^geopuls-.+-res\d+\.csv$/);
 
-  const apiBase = process.env.GEOPULS_API_URL ?? "http://127.0.0.1:8000";
+  const apiBase = API_BASE;
   const resolution = Number(
     (await page.getByTestId("resolution").textContent())?.match(/res (\d)/)?.[1] ?? 9,
   );

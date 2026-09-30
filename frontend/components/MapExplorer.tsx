@@ -488,6 +488,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             busy={status === "loading"}
             initialView={initialView}
             selectedCell={selectedCell}
+            // Точки в ячейке — по той же категории, что и список объектов в панели
+            category={baseCategory}
             onCellSelect={handleCellSelect}
             onResolutionChange={handleResolutionChange}
             onViewChange={handleViewChange}
