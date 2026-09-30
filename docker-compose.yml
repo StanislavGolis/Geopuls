@@ -91,10 +91,6 @@ services:
       - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    # code-server живёт на хосте (systemd, слушает 127.0.0.1:8080), а Caddy — в контейнере:
-    # без этого проброса поддомен редактора получил бы 502.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - api
       - web
