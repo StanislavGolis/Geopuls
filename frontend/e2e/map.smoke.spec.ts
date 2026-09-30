@@ -664,6 +664,55 @@ test("сравнение зон показывает таблицу по дву�
   await expect(page).not.toHaveURL(new RegExp(second!.h3));
 });
 
+test("радиус: клик по карте считает, что вокруг точки, и живёт в ссылке", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  await page.getByTestId("open-around").click();
+  // Пока точки нет, режим объясняет, что делать: иначе он выглядит как «ничего не произошло»
+  await expect(page.getByTestId("around-hint")).toBeVisible();
+
+  // Точку ставит клик по карте — проверяем тот путь, которым идёт пользователь
+  const canvas = page.locator(".map__canvas");
+  const box = await canvas.boundingBox();
+  expect(box, "карта должна занимать область").toBeTruthy();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2 - 80);
+
+  const panel = page.getByTestId("around-panel");
+  await expect(panel).toBeVisible();
+
+  const table = page.getByTestId("around-table");
+  await expect(table).toContainText("Конкуренты");
+  await expect(table).toContainText("В радиусе");
+  await expect(table).toContainText("Ближайший");
+  // Вердиктов нет — только наблюдения (ADR 0015)
+  await expect(panel).not.toContainText("перегрев");
+
+  // Круг радиуса на карте: числа и картинка считаются по одному радиусу
+  await expect
+    .poll(() => page.evaluate(() => Boolean(window.__geopulsMap?.getLayer("around-circle-line"))))
+    .toBe(true);
+  // Ссылка помнит точку: расчётом делятся так же, как видом карты
+  await expect.poll(() => page.url()).toContain("around=");
+});
+
+test("радиус: ссылка с точкой открывает расчёт с тем же радиусом", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${MAP_URL}&around=56.4847,84.9482&radius=300`);
+  await waitForStyle(page);
+
+  const panel = page.getByTestId("around-panel");
+  await expect(panel).toBeVisible();
+  // Радиус из ссылки — тот же, которым посчитан ответ
+  await expect(page.getByTestId("around-radius-300")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("around-point")).toContainText("300");
+  await expect(page.getByTestId("around-table")).toContainText("Конкуренты");
+});
+
 test("профиль города открывается по ссылке и объясняет данные", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${MAP_URL}&profile=1`);

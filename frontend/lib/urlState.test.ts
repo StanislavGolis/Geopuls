@@ -97,6 +97,8 @@ describe("buildSearch", () => {
       overlays: "population,transport",
       cell: CELL,
       compare: null,
+      around: { lat: 56.4847, lon: 84.9482 },
+      radius: 1000,
       profile: false,
       res: 9 as const,
       zoom: 13,
@@ -110,6 +112,31 @@ describe("buildSearch", () => {
     expect(buildSearch({ city: "tomsk", profile: true })).toBe("city=tomsk&profile=1");
     expect(parseUrlState("?city=tomsk&profile=1").profile).toBe(true);
     expect(parseUrlState("?city=tomsk").profile).toBe(false);
+  });
+
+  it("точка радиуса живёт в ссылке — расчёт можно переслать", () => {
+    const search = buildSearch({ around: { lat: 56.4847, lon: 84.9482 } });
+
+    // Радиус по умолчанию в ссылку не пишем: она остаётся короткой, а значение подставит клиент
+    expect(search).toBe("around=56.48470,84.94820");
+    expect(parseUrlState(`?${search}`).around).toEqual({ lat: 56.4847, lon: 84.9482 });
+  });
+
+  it("другой радиус попадает в ссылку", () => {
+    expect(buildSearch({ around: { lat: 56.4847, lon: 84.9482 }, radius: 1000 })).toBe(
+      "around=56.48470,84.94820&radius=1000",
+    );
+  });
+
+  it("радиус без точки игнорируется: непонятно, вокруг чего считать", () => {
+    expect(parseUrlState("?city=tomsk&radius=1000").radius).toBeNull();
+  });
+
+  it("мусор вместо координат и радиуса не роняет карту", () => {
+    const state = parseUrlState("?around=abc&radius=999999");
+
+    expect(state.around).toBeNull();
+    expect(state.radius).toBeNull();
   });
 
   it("сравнение зон: список ячеек в ссылке, мусор отбрасывается, лишние обрезаются", () => {

@@ -1,3 +1,5 @@
+import { DEFAULT_RADIUS_M, isValidRadius } from "@/lib/around";
+
 /**
  * Состояние интерфейса в адресной строке (shareable URL, раздел 4.3 ТЗ).
  *
@@ -19,6 +21,10 @@ export type UrlState = {
   cell: string | null;
   /** Ячейки в сравнении через запятую (2–5): сравнением делятся так же, как видом карты. */
   compare: string | null;
+  /** Точка, вокруг которой считаем радиус (`around=lat,lon`). */
+  around: { lat: number; lon: number } | null;
+  /** Радиус в метрах: значим только вместе с точкой. */
+  radius: number | null;
   /** Открыт профиль города (сводка по данным, раздел плана развития). */
   profile: boolean;
   res: 8 | 9 | null;
@@ -37,6 +43,8 @@ export const EMPTY_URL_STATE: UrlState = {
   overlays: null,
   cell: null,
   compare: null,
+  around: null,
+  radius: null,
   profile: false,
   res: null,
   zoom: null,
@@ -92,6 +100,13 @@ export function parseResolution(value: string | null | undefined): 8 | 9 | null 
   return null;
 }
 
+/** Радиус из ссылки: принимаем только значения из списка, остальное игнорируем как мусор. */
+export function parseRadius(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return isValidRadius(parsed) ? parsed : null;
+}
+
 function parseString(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed === "" ? null : trimmed;
@@ -121,6 +136,9 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   const zoom = parseZoom(params.get("zoom"));
   const res = zoom !== null ? resolutionFromZoom(zoom) : parseResolution(params.get("res"));
   const compare = parseCellList(params.get("compare"));
+  // Точка и радиус: радиус без точки бессмысленен, поэтому без `around` он игнорируется
+  const around = parseCenter(params.get("around"));
+  const radius = around ? parseRadius(params.get("radius")) : null;
 
   return {
     city,
@@ -129,6 +147,8 @@ export function parseUrlState(source: string | Record<string, string | string[] 
     overlays,
     cell,
     compare: compare.length > 0 ? compare.join(",") : null,
+    around,
+    radius,
     // Профиль города — это экран, а не значение: в ссылке он означает «открой сводку»
     profile: params.get("profile") === "1",
     res,
@@ -163,6 +183,11 @@ export function buildSearch(state: Partial<UrlState>): string {
   if (overlays) push("overlays", overlays);
   if (cell) push("cell", cell);
   if (compare.length > 0) push("compare", compare.join(","));
+  // Точка радиуса и его значение: радиус по умолчанию не пишем, чтобы ссылка оставалась короткой
+  if (state.around) {
+    push("around", `${state.around.lat.toFixed(5)},${state.around.lon.toFixed(5)}`);
+    if (state.radius && state.radius !== DEFAULT_RADIUS_M) push("radius", String(state.radius));
+  }
   if (state.profile) push("profile", "1");
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {

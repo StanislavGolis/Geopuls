@@ -1261,12 +1261,234 @@ button:disabled {
   border-top: 1px solid var(--border);
 }
 
+/* ── Радиус: «что вокруг точки» (план развития, этап 3) ───────────────────── */
+/* Панель справа снизу: легенда занимает левый низ, карточка объекта — правый верх */
+.around {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--line-height-attribution) + 8px);
+  z-index: 24;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.around__card {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 24px));
+  max-height: 60vh;
+  overflow: hidden;
+  /* Фон обязателен и непрозрачен: карточка лежит поверх карты */
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  pointer-events: auto;
+}
+
+.around__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.around__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.around__subtitle {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.around__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.around__button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.around__button:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.around__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.around__close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.around__radius {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.around__radius-option {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.around__radius-option--active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.around__scroll {
+  overflow: auto;
+}
+
+.around__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.around__th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.around__row-title {
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.around__row-unit {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.around__value {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.around__note,
+.around__error {
+  padding: 12px 14px;
+}
+
+.around__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.around__error {
+  color: var(--text-primary);
+}
+
+.around__point {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.around__footer-note {
+  margin: 0;
+  padding: 8px 14px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Подсказка, пока точку не поставили: без неё режим выглядит как «ничего не произошло» */
+.around-hint {
+  position: fixed;
+  bottom: calc(var(--line-height-attribution) + 24px);
+  left: 50%;
+  z-index: 26;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  font-size: 12px;
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
 /* Возвращаемся в мобильный блок: ниже идут надстройки для узких экранов */
 @media (max-width: 640px) {
 .skeleton__hex,
   .skeleton__hex--mid {
     width: 30px;
     height: 26px;
+  }
+
+  /* На телефоне панель радиуса занимает низ экрана во всю ширину */
+  .around {
+    left: 8px;
+    right: 8px;
+    justify-content: stretch;
+  }
+
+  .around__card {
+    width: 100%;
+  }
+
+  .around__radius {
+    overflow-x: auto;
+  }
+
+  .around-hint {
+    left: 8px;
+    right: 8px;
+    transform: none;
+    text-align: center;
   }
 
   /* На телефоне список объектов — «шторка» снизу, как в картах */

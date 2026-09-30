@@ -182,6 +182,42 @@ class ProfileLayerOut(BaseModel):
     median_value: float | None = None
 
 
+class AroundLayerOut(BaseModel):
+    """Слой в радиусе: сколько объектов рядом и как близко ближайший.
+
+    ``objects`` — число объектов слоя, а не «доля площади»: в круге радиуса 500 м площадь и длину
+    мы не считаем, и подписывать их метрикой слоя было бы неправдой.
+    """
+
+    slug: str
+    name: str
+    category: str | None = None
+    metric_kind: str
+    unit: str | None = None
+    objects: int
+    #: Расстояние до ближайшего объекта слоя, метры (None — объектов нет)
+    nearest_m: float | None = None
+    nearest_name: str | None = None
+
+
+class AroundMeta(BaseModel):
+    city: str
+    radius_m: int
+    category: str | None = None
+    data_version: str | None = None
+    updated_at: datetime | None = None
+
+
+class AroundResponse(BaseModel):
+    """Что вокруг точки: круг радиуса R не совпадает с гексом, поэтому считается отдельно (ТЗ §3.2)."""
+
+    type: Literal["AroundPoint"] = "AroundPoint"
+    point: LatLngOut
+    meta: AroundMeta
+    layers: list[AroundLayerOut] = Field(default_factory=list)
+    sources: list[LayerSourceOut] = Field(default_factory=list)
+
+
 class CityProfileOut(BaseModel):
     """Профиль города: сводка, по которой видно, что это за город и насколько полны данные.
 

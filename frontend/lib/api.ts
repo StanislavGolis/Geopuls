@@ -375,6 +375,57 @@ export function fetchCityProfile(slug: string): Promise<CityProfile> {
   return requestJson<CityProfile>(`/api/v1/meta/cities/${encodeURIComponent(slug)}/profile`);
 }
 
+/** Слой в радиусе: объекты и расстояние до ближайшего — то, что измеряется в круге, а не в гексе. */
+export type AroundLayer = {
+  slug: string;
+  name: string;
+  category: string | null;
+  metric_kind: string;
+  unit: string | null;
+  objects: number;
+  nearest_m: number | null;
+  nearest_name: string | null;
+};
+
+export type AroundResponse = {
+  type: "AroundPoint";
+  point: { lat: number; lon: number };
+  meta: {
+    city: string;
+    radius_m: number;
+    category: string | null;
+    data_version: string | null;
+    updated_at: string | null;
+  };
+  layers: AroundLayer[];
+  sources: LayerSource[];
+};
+
+export type AroundQuery = {
+  city: string;
+  lat: number;
+  lon: number;
+  category: string;
+  radiusM: number;
+};
+
+/**
+ * Что вокруг точки: конкуренты и инфраструктура в радиусе.
+ *
+ * Отдельно от сетки: круг 500 м не совпадает с границами гекса, поэтому его считает бэкенд
+ * через `ST_DWithin` (ТЗ §3.2). Интерфейс числа не досчитывает — иначе «рядом 3 конкурента»
+ * разошлось бы с тем, что показывает карта.
+ */
+export function fetchAround(query: AroundQuery): Promise<AroundResponse> {
+  return requestJson<AroundResponse>("/api/v1/around", {
+    city: query.city,
+    lat: query.lat,
+    lon: query.lon,
+    category: query.category,
+    radius_m: query.radiusM,
+  });
+}
+
 export function fetchCells(query: CellsQuery): Promise<CellsResponse> {
   return requestJson<CellsResponse>("/api/v1/cells", {
     city: query.city,

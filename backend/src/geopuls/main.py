@@ -12,6 +12,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 
 from geopuls import __version__
+from geopuls.api.around import router as around_router
 from geopuls.api.cells import router as cells_router
 from geopuls.api.health import router as health_router
 from geopuls.api.layers import router as layers_router
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_problem_handlers(app)
     app.include_router(health_router)
     app.include_router(meta_router)
+    app.include_router(around_router)
     app.include_router(cells_router)
     app.include_router(layers_router)
     app.include_router(map_router)

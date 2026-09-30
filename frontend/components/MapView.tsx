@@ -13,6 +13,7 @@ import {
 
 import type { CityMeta, LayerGrid } from "@/lib/api";
 import { fetchPois, type PoiItem } from "@/lib/api";
+import { buildRadiusCircle } from "@/lib/around";
 import {
   SELECTED_CELL_COLOR,
   heatColorExpression,
@@ -71,6 +72,10 @@ export type MapViewProps = {
   selectedCell?: string | null;
   /** Ячейки сравнения: подсвечиваем все, чтобы видеть зоны на карте, а не только в таблице. */
   compareCells?: string[];
+  /** Круг радиуса: показывает, какие именно метры посчитала панель «что вокруг точки». */
+  around?: { lat: number; lon: number; radiusM: number } | null;
+  /** Клик по карте в режиме радиуса: наружу уходят координаты точки под курсором. */
+  onPointSelect?: (point: { lat: number; lon: number }) => void;
   /**
    * Категория выбранного слоя: точки в ячейке показываем только по ней.
    *
@@ -93,6 +98,12 @@ const SELECTED_LAYER = "cells-selected-outline";
 /** Точки объектов выбранной ячейки: «где именно стоят эти бизнесы» — ответ на клик по гексу. */
 const POIS_SOURCE = "cell-pois";
 const POIS_LAYER = "cell-pois-points";
+/** Круг радиуса и его центр: «где именно эти 500 метров» — иначе числа в панели не с чем сверить. */
+const AROUND_SOURCE = "around-circle";
+const AROUND_FILL_LAYER = "around-circle-fill";
+const AROUND_LINE_LAYER = "around-circle-line";
+const AROUND_POINT_LAYER = "around-center-point";
+const AROUND_COLOR = "#b45309";
 /** Цвет точек совпадает с акцентом выбранной ячейки: видно, что они связаны. */
 const POI_COLOR = "#1d4ed8";
 
@@ -152,6 +163,32 @@ function emptyCollection(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
 }
 
+/**
+ * Круг радиуса и его центр в форме GeoJSON.
+ *
+ * Центр — отдельная точка, а не центроид круга: пользователь ставит точку кликом и должен видеть,
+ * куда именно он попал. Радиус здесь тот же, что ушёл в запрос: круг на карте не должен быть
+ * «примерно там же».
+ */
+function aroundCollection(
+  lat: number | null,
+  lon: number | null,
+  radiusM: number | null,
+): GeoJSON.FeatureCollection {
+  if (lat === null || lon === null || radiusM === null) return emptyCollection();
+  return {
+    type: "FeatureCollection",
+    features: [
+      buildRadiusCircle(lat, lon, radiusM) as GeoJSON.Feature,
+      {
+        type: "Feature",
+        properties: { radius_m: radiusM },
+        geometry: { type: "Point", coordinates: [lon, lat] },
+      },
+    ],
+  } as GeoJSON.FeatureCollection;
+}
+
 export default function MapView({
   city,
   grid,
@@ -161,6 +198,8 @@ export default function MapView({
   onViewChange,
   selectedCell = null,
   compareCells = [],
+  around = null,
+  onPointSelect,
   category = null,
   initialView = null,
   styleUrl,
@@ -174,6 +213,8 @@ export default function MapView({
   const selectRef = useRef(onCellSelect);
   const viewRef = useRef(onViewChange);
   const selectedRef = useRef(selectedCell);
+  const aroundRef = useRef(around);
+  const pointSelectRef = useRef(onPointSelect);
 
   const [webglMissing, setWebglMissing] = useState(false);
   const [basemapWarning, setBasemapWarning] = useState<string | null>(null);
@@ -185,6 +226,8 @@ export default function MapView({
   selectRef.current = onCellSelect;
   viewRef.current = onViewChange;
   selectedRef.current = selectedCell;
+  aroundRef.current = around;
+  pointSelectRef.current = onPointSelect;
 
   useImperativeHandle(ref, () => ({ getCanvas: () => mapRef.current?.getCanvas() ?? null }), []);
 
@@ -233,6 +276,19 @@ export default function MapView({
     );
     source.setData({ type: "FeatureCollection", features } as unknown as GeoJSON.FeatureCollection);
   }, []);
+
+  /**
+   * Круг радиуса на карте: обновляется тем же радиусом, что ушёл в запрос, поэтому картинка и числа
+   * не могут разойтись.
+   */
+  const applyAround = useCallback(
+    (map: MapLibreMap, lat: number | null, lon: number | null, radiusM: number | null) => {
+      const source = map.getSource(AROUND_SOURCE) as GeoJSONSource | undefined;
+      if (!source) return;
+      source.setData(aroundCollection(lat, lon, radiusM));
+    },
+    [],
+  );
 
   const reportView = useCallback((map: MapLibreMap) => {
     const center = map.getCenter();
@@ -285,6 +341,48 @@ export default function MapView({
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
         },
+      });
+
+      // Круг радиуса: точка, поставленная кликом, сразу видна как круг измеренного радиуса
+      map.addSource(AROUND_SOURCE, {
+        type: "geojson",
+        data: aroundCollection(
+          aroundRef.current?.lat ?? null,
+          aroundRef.current?.lon ?? null,
+          aroundRef.current?.radiusM ?? null,
+        ),
+      });
+      map.addLayer({
+        id: AROUND_FILL_LAYER,
+        type: "fill",
+        source: AROUND_SOURCE,
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "fill-color": AROUND_COLOR, "fill-opacity": 0.12 },
+      });
+      map.addLayer({
+        id: AROUND_LINE_LAYER,
+        type: "line",
+        source: AROUND_SOURCE,
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "line-color": AROUND_COLOR, "line-width": 2, "line-dasharray": [2, 1] },
+      });
+      map.addLayer({
+        id: AROUND_POINT_LAYER,
+        type: "circle",
+        source: AROUND_SOURCE,
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 5,
+          "circle-color": AROUND_COLOR,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
+      // Клик по карте в режиме радиуса: точка ставится там, куда попал пользователь, а не в центре
+      // гекса — круг обводит то место, о котором спросили. Вне режима обработчик молчит
+      map.on("click", (event) => {
+        pointSelectRef.current?.({ lat: event.lngLat.lat, lon: event.lngLat.lng });
       });
 
       map.on("mouseenter", CELLS_LAYER, () => {
@@ -361,6 +459,13 @@ export default function MapView({
       window.clearTimeout(fallbackTimer);
       ensureLayers(map);
       applySelected(map, selectedRef.current);
+      // Круг радиуса восстанавливаем после смены стиля подложки: стиль пересоздаёт слои
+      applyAround(
+        map,
+        aroundRef.current?.lat ?? null,
+        aroundRef.current?.lon ?? null,
+        aroundRef.current?.radiusM ?? null,
+      );
       map.resize();
       handleZoomEnd();
     });
@@ -389,6 +494,7 @@ export default function MapView({
     handleZoomEnd,
     ensureLayers,
     applySelected,
+    applyAround,
     reportView,
     city.center.lat,
     city.center.lon,
@@ -478,6 +584,21 @@ export default function MapView({
     applySelected(map, selectedCell);
   }, [selectedCell, applySelected]);
 
+  /**
+   * Круг радиуса: тот же радиус, что ушёл в запрос панели.
+   *
+   * Отдельным эффектом, а не частью `applySelected`: у ячейки и круга разная природа — первая берётся
+   * из данных карты, второй считается на клиенте. Свести их в один вызов значило бы связать подсветку
+   * зон с режимом, который к ним отношения не имеет.
+   */
+  const aroundLat = around?.lat ?? null;
+  const aroundLon = around?.lon ?? null;
+  const aroundRadiusM = around?.radiusM ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getSource(AROUND_SOURCE)) return;
+    applyAround(map, aroundLat, aroundLon, aroundRadiusM);
+  }, [aroundLat, aroundLon, aroundRadiusM, applyAround, grid]);
   if (webglMissing) {
     return (
       <div className="map__canvas" data-testid="webgl-missing">

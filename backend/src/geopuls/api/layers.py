@@ -143,6 +143,16 @@ async def load_layers(session: AsyncSession, slugs: list[str]) -> dict[str, dict
     return {row["slug"]: dict(row) for row in rows}
 
 
+async def load_active_layers(session: AsyncSession) -> dict[str, dict[str, Any]]:
+    """Все активные слои: реестр целиком.
+
+    Нужен там, где ответ описывает весь набор слоёв (например, «что вокруг точки»): перечислять
+    slug'и поимённо значило бы заводить второй список рядом с базой и расходиться с ним.
+    """
+    rows = (await session.execute(text(LAYERS_SQL))).mappings().all()
+    return {row["slug"]: dict(row) for row in rows}
+
+
 async def require_layer_variant(
     session: AsyncSession,
     layer: dict[str, Any],

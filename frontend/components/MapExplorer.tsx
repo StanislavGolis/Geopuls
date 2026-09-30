@@ -1,8 +1,9 @@
 "use client";
 
-import { BarChart3, Scale, Share2 } from "lucide-react";
+import { BarChart3, Crosshair, Scale, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import AroundPanel from "@/components/AroundPanel";
 import CityProfile from "@/components/CityProfile";
 import ComparePanel from "@/components/ComparePanel";
 import ExportMenu from "@/components/ExportMenu";
@@ -22,6 +23,7 @@ import {
   fetchLayerGrid,
   fetchLayers,
 } from "@/lib/api";
+import { DEFAULT_RADIUS_M } from "@/lib/around";
 import { gridCacheKey, loadGrid, saveGrid } from "@/lib/cache";
 import {
   buildExportFooter,
@@ -104,6 +106,11 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [compareRefs, setCompareRefs] = useState<string[]>(() => parseCellList(initial.compare));
   /** Режим сравнения: пока он включён, клик по гексу набирает зоны, а не открывает карточку объектов. */
   const [compareOpen, setCompareOpen] = useState(() => parseCellList(initial.compare).length > 0);
+  /** Режим радиуса: клик по карте ставит точку, вокруг которой считаем «что рядом». */
+  const [aroundOpen, setAroundOpen] = useState(initial.around !== null);
+  /** Точка радиуса: живёт в ссылке (`around=lat,lon`), чтобы расчёт можно было переслать. */
+  const [aroundPoint, setAroundPoint] = useState<{ lat: number; lon: number } | null>(initial.around);
+  const [radiusM, setRadiusM] = useState<number>(initial.radius ?? DEFAULT_RADIUS_M);
 
   const mapRef = useRef<MapViewHandle | null>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -231,13 +238,26 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       overlays: infoLayersKey || null,
       cell: selectedCell,
       compare: compareRefs.join(",") || null,
+      around: aroundPoint,
+      radius: aroundPoint ? radiusM : null,
       profile: profileOpen,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
-  }, [citySlug, baseRef, infoLayersKey, selectedCell, compareRefs, profileOpen, res, view]);
+  }, [
+    citySlug,
+    baseRef,
+    infoLayersKey,
+    selectedCell,
+    compareRefs,
+    profileOpen,
+    aroundPoint,
+    radiusM,
+    res,
+    view,
+  ]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
   const categoryNames = useMemo(
@@ -323,6 +343,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
    */
   const handleCellSelect = useCallback(
     (h3: string) => {
+      // В режиме радиуса клик ставит точку (см. handlePointSelect): карточка здесь только мешала бы
+      if (aroundOpen) return;
       if (!compareOpen) {
         setSelectedCell(h3);
         return;
@@ -335,8 +357,35 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             : [...current, h3],
       );
     },
-    [compareOpen],
+    [compareOpen, aroundOpen],
   );
+
+  /**
+   * Клик по карте в режиме радиуса: точка ставится там, куда попал пользователь.
+   *
+   * Координаты берём у карты, а не у центра гекса: круг должен обводить то место, о котором спросили,
+   * иначе «в 200 м» будет означать «в 200 м от центра ячейки, а не от адреса».
+   */
+  const handlePointSelect = useCallback((point: { lat: number; lon: number }) => {
+    setAroundPoint(point);
+    setSelectedCell(null);
+  }, []);
+
+  /**
+   * Режимы «Сравнить» и «Радиус» отвечают на разные вопросы, и оба забирают клик по карте: включёнными
+   * одновременно они невозможны — человек не угадает, что сделает клик. Включение одного закрывает
+   * другой вместе с его точкой: недосказанный расчёт лучше чужого круга на карте.
+   */
+  const toggleCompare = useCallback(() => {
+    setCompareOpen((current) => !current);
+    setAroundOpen(false);
+    setAroundPoint(null);
+  }, []);
+
+  const toggleAround = useCallback(() => {
+    setAroundOpen((current) => !current);
+    setCompareOpen(false);
+  }, []);
 
   /** Смена варианта базового слоя: слой остаётся, меняется категория внутри него. */
   const selectCategory = useCallback((slug: string) => {
@@ -485,7 +534,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <button
             type="button"
             className="topbar__button"
-            onClick={() => setCompareOpen((value) => !value)}
+            onClick={toggleCompare}
             disabled={!citySlug}
             aria-pressed={compareOpen}
             data-testid="open-compare"
@@ -493,6 +542,20 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           >
             <Scale size={16} aria-hidden="true" />
             <span className="topbar__button-label">Сравнить</span>
+          </button>
+
+          <button
+            type="button"
+            className="topbar__button"
+            onClick={toggleAround}
+            // Без категории радиус не посчитать: «конкуренты» без неё не определены (проверяет и API)
+            disabled={!citySlug || !baseCategory}
+            aria-pressed={aroundOpen}
+            data-testid="open-around"
+            title="Радиус: клик по карте ставит точку, вокруг неё считаются конкуренты и инфраструктура"
+          >
+            <Crosshair size={16} aria-hidden="true" />
+            <span className="topbar__button-label">Радиус</span>
           </button>
 
           <button
@@ -544,6 +607,10 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             selectedCell={selectedCell}
             // Зоны сравнения подсвечиваем тем же контуром: карта и таблица говорят об одном
             compareCells={compareRefs}
+            // Круг радиуса: показывает, какие именно метры посчитала панель «что вокруг точки»
+            around={aroundOpen && aroundPoint ? { ...aroundPoint, radiusM } : null}
+            // Клик ставит точку только в режиме радиуса: в остальное время он открывает карточку
+            onPointSelect={aroundOpen ? handlePointSelect : undefined}
             // Точки в ячейке — по той же категории, что и список объектов в панели
             category={baseCategory}
             onCellSelect={handleCellSelect}
@@ -664,6 +731,27 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             onClear={() => setCompareRefs([])}
             onClose={() => setCompareOpen(false)}
           />
+        )}
+
+        {aroundOpen && citySlug && baseCategory && aroundPoint && (
+          <AroundPanel
+            city={citySlug}
+            point={aroundPoint}
+            radiusM={radiusM}
+            category={baseCategory}
+            categoryName={categoryNames[baseCategory] ?? baseCategory}
+            onRadiusChange={setRadiusM}
+            onClose={() => {
+              setAroundOpen(false);
+              setAroundPoint(null);
+            }}
+          />
+        )}
+
+        {aroundOpen && !aroundPoint && (
+          <div className="around-hint" role="status" data-testid="around-hint">
+            Кликните по карте — поставлю точку и посчитаю, что попадает в {radiusM} м вокруг неё
+          </div>
         )}
 
         {/* Постоянная строка: атрибуция и лицензии должны быть видны всегда (ADR 0002, спека §4.7) */}
