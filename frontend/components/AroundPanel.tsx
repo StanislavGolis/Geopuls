@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, type AroundLayer, type AroundResponse, fetchAround } from "@/lib/api";
 import { RADIUS_OPTIONS } from "@/lib/around";
+import { stopPanelClick } from "@/lib/panels";
 
 export type AroundPanelProps = {
   city: string;
@@ -88,6 +89,7 @@ export default function AroundPanel({
       aria-modal="true"
       aria-label="Что вокруг точки"
       data-testid="around-panel"
+      onClick={stopPanelClick}
     >
       <div className="around__card">
         <header className="around__head">

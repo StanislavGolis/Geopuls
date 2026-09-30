@@ -11,6 +11,7 @@ import {
   fetchCityProfile,
 } from "@/lib/api";
 import { formatLayerValue, metricLabel } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 
 export type ComparePanelProps = {
   city: string;
@@ -102,6 +103,7 @@ export default function ComparePanel({
       aria-modal="true"
       aria-label="Сравнение зон"
       data-testid="compare-panel"
+      onClick={stopPanelClick}
     >
       <div className="compare__card">
         <header className="compare__head">

@@ -272,7 +272,9 @@ describe("MapExplorer", () => {
     expect(map.textContent).toContain("cells=1");
     expect(screen.getByTestId("data-version").textContent).toContain("27.09.2026");
     expect(screen.getByTestId("resolution").textContent).toContain("res 9");
-    expect(screen.getByText("25.6 – 42.7")).toBeTruthy();
+    // Подпись класса есть и в легенде, и в виджете классов: проверяем именно легенду, чтобы тест
+    // не зависел от того, сколько панелей открыто
+    expect(screen.getAllByText("25.6 – 42.7").length).toBeGreaterThan(0);
     expect(screen.getByTestId("attribution").textContent).toContain("OpenFreeMap");
   });
 
@@ -549,6 +551,45 @@ describe("MapExplorer", () => {
     // Закрытие сводки возвращает на основную вкладку, а не оставляет пустую сцену
     expect(screen.getByTestId("tab-competitors").getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(window.location.search).not.toContain("tab=city"));
+  });
+
+  it("виджеты зон: топ зон и классы плотности считаются по загруженной сетке", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    // Панель открыта по умолчанию: это ответ на «где выбранного больше всего»
+    const widgets = await screen.findByTestId("cell-widgets");
+    expect(widgets.textContent).toContain("Топ зон");
+    expect(widgets.textContent).toContain("Классы плотности");
+
+    // Клик по зоне открывает карточку зоны и попадает в ссылку — тот же выбор, что кликом по карте
+    fireEvent.click(screen.getByTestId("widget-zone-890b80db643ffff"));
+    await waitFor(() => expect(window.location.search).toContain("cell=890b80db643ffff"));
+
+    // Клик по классу подсвечивает его (повторный — снимает), в ссылку это не пишется: это оформление
+    fireEvent.click(screen.getByTestId("widget-class-0"));
+    expect(screen.getByTestId("widget-class-0").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByTestId("widget-class-0"));
+    expect(screen.getByTestId("widget-class-0").getAttribute("aria-pressed")).toBe("false");
+
+    // Крестик и кнопка «Зоны» в панели сцены возвращают панель
+    fireEvent.click(screen.getByTestId("widgets-close"));
+    await waitFor(() => expect(screen.queryByTestId("cell-widgets")).toBeNull());
+    fireEvent.click(screen.getByTestId("toggle-widgets"));
+    expect(await screen.findByTestId("cell-widgets")).toBeTruthy();
+  });
+
+  it("в «Инструментах» и «Городе» сводки по зонам нет: там своя панель данных", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+    expect(await screen.findByTestId("cell-widgets")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("tab-tools"));
+    await waitFor(() => expect(screen.queryByTestId("cell-widgets")).toBeNull());
+    expect(screen.queryByTestId("toggle-widgets")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("tab-competitors"));
+    expect(await screen.findByTestId("cell-widgets")).toBeTruthy();
   });
 
   it("вкладки хранят выбор пользователя: категория не сбрасывается при переходах", async () => {

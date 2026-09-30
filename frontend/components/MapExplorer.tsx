@@ -4,6 +4,7 @@ import { Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AroundPanel from "@/components/AroundPanel";
+import CellWidgets from "@/components/CellWidgets";
 import CityProfile from "@/components/CityProfile";
 import ComparePanel from "@/components/ComparePanel";
 import ExportMenu from "@/components/ExportMenu";
@@ -50,6 +51,7 @@ import {
   serializeLayerRef,
   type LayerRef,
 } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 import {
   DEFAULT_TAB,
   EMPTY_URL_STATE,
@@ -59,6 +61,7 @@ import {
   type TabId,
   type UrlState,
 } from "@/lib/urlState";
+import { cellsOfClass } from "@/lib/widgets";
 
 export type MapExplorerProps = {
   /** URL стиля подложки (значение из окружения, см. docs/decisions/0002-basemap.md). */
@@ -132,8 +135,17 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   /** Точка радиуса: живёт в ссылке (`around=lat,lon`), чтобы расчёт можно было переслать. */
   const [aroundPoint, setAroundPoint] = useState<{ lat: number; lon: number } | null>(initial.around);
   const [radiusM, setRadiusM] = useState<number>(initial.radius ?? DEFAULT_RADIUS_M);
+  /**
+   * Панель виджетов: открыта по умолчанию — это ответ на «где выбранного больше всего».
+   * В ссылку не пишется: свёрнутость панели — оформление, а не данные.
+   */
+  const [widgetsOpen, setWidgetsOpen] = useState(true);
+  /** Класс плотности, подсвеченный на карте контуром (`null` — не выбран). */
+  const [classIndex, setClassIndex] = useState<number | null>(null);
 
   const mapRef = useRef<MapViewHandle | null>(null);
+  /** Просьба подвести карту к выбранной зоне: ставится виджетом, снимается эффектом подведения. */
+  const focusPendingRef = useRef(false);
   const requestRef = useRef<AbortController | null>(null);
   const resRef = useRef(res);
   const citySelectRef = useRef<HTMLSelectElement | null>(null);
@@ -265,11 +277,16 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     return () => controller.abort();
   }, [citySlug, baseKey, infoLayersKey, res, reloadToken]);
 
-  // Смена разрешения означает другую сетку: ячейку из прежней сетки больше не подсвечиваем
+  /**
+   * Разрешение в состоянии держим в актуальном виде, но выбранную зону при его смене не сбрасываем.
+   *
+   * Раньше сбрасывали: запрос объектов шёл с «текущим» разрешением, и для ячейки прежней сетки он давал
+   * 404. Теперь запрос идёт с разрешением самой ячейки (`resolutionOfCell`), а подведение карты к зоне из
+   * виджета меняет зум и, значит, разрешение — сбрасывать выбор было бы неверно: человек только что
+   * выбрал эту зону.
+   */
   useEffect(() => {
-    if (resRef.current === res) return;
     resRef.current = res;
-    setSelectedCell(null);
   }, [res]);
 
   // Состояние интерфейса в адресной строке: ссылкой можно поделиться (replaceState — без спама истории)
@@ -344,6 +361,53 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     [layers],
   );
   const baseColumnData = useMemo(() => (grid ? baseColumn(grid) : null), [grid]);
+
+  /**
+   * Зоны подсвеченного класса: пересчитываются по требованию, а в состоянии живёт только номер класса.
+   *
+   * Хранить сами ячейки нельзя: класс — это сотни индексов, и они бы осели в состоянии и в ссылке.
+   */
+  const classCells = useMemo(() => {
+    if (!grid || !baseColumnData || classIndex === null) return [];
+    return cellsOfClass(grid, baseColumnData, classIndex);
+  }, [grid, baseColumnData, classIndex]);
+
+  /**
+   * Клик по зоне в виджете: выбираем её и просим подвести карту.
+   *
+   * Подведение — не часть обработчика, а следствие выбора (см. эффект ниже): смена вида карты внутри
+   * клика запускает каскад событий MapLibre прямо посреди обновления состояния React.
+   */
+  const handleZoneSelect = useCallback((h3: string) => {
+    focusPendingRef.current = true;
+    setSelectedCell(h3);
+  }, []);
+
+  /** Клик по классу: подсветка контуром; повторный клик снимает подсветку. */
+  const handleClassSelect = useCallback((index: number | null) => {
+    setClassIndex(index);
+  }, []);
+
+  /** Контуры зон одним списком: сравнение и класс плотности рисуются одним слоем (см. MapView). */
+  const outlineCells = useMemo(() => [...compareRefs, ...classCells], [compareRefs, classCells]);
+
+  // Смена слоя или города меняет шкалу классов: подсветка прежнего класса теряет смысл
+  useEffect(() => {
+    setClassIndex(null);
+  }, [baseKey, citySlug]);
+
+  /**
+   * Подведение карты к зоне, выбранной в виджете.
+   *
+   * Отдельным эффектом, потому что смена вида карты — это следствие выбора, а не его часть: вызов
+   * `fitBounds` внутри обработчика клика запускал события MapLibre посреди обновления состояния React,
+   * и выбор зоны терялся (карта уезжала, карточка не открывалась).
+   */
+  useEffect(() => {
+    if (!selectedCell || !focusPendingRef.current) return;
+    focusPendingRef.current = false;
+    mapRef.current?.focusCell(selectedCell);
+  }, [selectedCell]);
   /**
    * Значения включённых слоёв для выбранной ячейки — их показывает карточка объекта.
    *
@@ -671,6 +735,20 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         )}
 
         {tab === "city" && <span className="scene-bar__note">Сводка по данным города</span>}
+
+        {/* Сводка по зонам: у «Конкурентов» и «Инфраструктуры» она отвечает числами того же слоя */}
+        {(tab === "competitors" || tab === "infrastructure") && (
+          <button
+            type="button"
+            className={`scene-bar__button${widgetsOpen ? " scene-bar__button--active" : ""}`}
+            aria-pressed={widgetsOpen}
+            data-testid="toggle-widgets"
+            title="Сводка по зонам: топ зон и распределение по классам плотности"
+            onClick={() => setWidgetsOpen((value) => !value)}
+          >
+            Зоны
+          </button>
+        )}
       </div>
 
       <div className="map">
@@ -682,8 +760,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             busy={status === "loading"}
             initialView={initialView}
             selectedCell={selectedCell}
-            // Зоны сравнения подсвечиваем тем же контуром: карта и таблица говорят об одном
-            compareCells={compareRefs}
+            // Контуры: зоны сравнения и подсвеченный класс плотности — обе «вот эти зоны»
+            outlineCells={outlineCells}
             // Круг радиуса: показывает, какие именно метры посчитала панель «что вокруг точки»
             around={aroundOpen && aroundPoint ? { ...aroundPoint, radiusM } : null}
             // Клик ставит точку только в режиме радиуса: в остальное время он открывает карточку
@@ -722,6 +800,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         )}
 
         {status === "loading" && <MapSkeleton />}
+
+        {/* Сводка по зонам: топ зон и классы плотности — считается по уже загруженной сетке */}
+        {widgetsOpen && grid && baseColumnData && (tab === "competitors" || tab === "infrastructure") && (
+          <CellWidgets
+            grid={grid}
+            column={baseColumnData}
+            selectedCell={selectedCell}
+            activeClass={classIndex}
+            onZoneSelect={handleZoneSelect}
+            onClassSelect={handleClassSelect}
+            onClose={() => setWidgetsOpen(false)}
+          />
+        )}
 
         {offline && (
           <div className="offline-banner" role="status" data-testid="offline">
@@ -829,13 +920,13 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         )}
 
         {tab === "tools" && aroundOpen && !aroundPoint && (
-          <div className="around-hint" role="status" data-testid="around-hint">
+          <div className="around-hint" role="status" data-testid="around-hint" onClick={stopPanelClick}>
             Кликните по карте — поставлю точку и посчитаю, что попадает в {radiusM} м вокруг неё
           </div>
         )}
 
         {tab === "tools" && !aroundOpen && !compareOpen && (
-          <div className="tools__menu" data-testid="tools-menu">
+          <div className="tools__menu" data-testid="tools-menu" onClick={stopPanelClick}>
             <p className="tools__title">Инструменты анализа</p>
             <button
               type="button"

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, type PoiItem, type PoisMeta, fetchPois } from "@/lib/api";
 import { pluralObjects } from "@/lib/format";
 import { formatLayerValue, metricLabel } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 
 /** Значение дополнительного слоя в выбранной ячейке: числа из включённых пользователем слоёв. */
 export type CellMetricView = {
@@ -83,7 +84,12 @@ export default function PoiPanel({
   const retry = useCallback(() => setReloadToken((value) => value + 1), []);
 
   return (
-    <section className="poi-panel" aria-label="Объекты в выбранной ячейке" data-testid="poi-panel">
+    <section
+      className="poi-panel"
+      aria-label="Объекты в выбранной ячейке"
+      data-testid="poi-panel"
+      onClick={stopPanelClick}
+    >
       <header className="poi-panel__head">
         <span className="poi-panel__title">Объекты в ячейке</span>
         <span className="poi-panel__count" data-testid="poi-count">

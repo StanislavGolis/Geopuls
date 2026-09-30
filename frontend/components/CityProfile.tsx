@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, fetchCityProfile, type CityProfile as CityProfileData } from "@/lib/api";
 import { formatDataVersion, pluralObjects } from "@/lib/format";
 import { formatLayerValue, metricLabel } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 
 export type CityProfileProps = {
   city: string;
@@ -70,6 +71,7 @@ export default function CityProfile({ city, cityName, onClose }: CityProfileProp
       aria-modal="true"
       aria-label="Профиль города"
       data-testid="city-profile"
+      onClick={stopPanelClick}
     >
       <div className="city-profile__card">
         <header className="city-profile__head">

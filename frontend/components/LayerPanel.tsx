@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import type { LayerGrid, LayerMeta } from "@/lib/api";
 import { isPartiallyCovered, metricLabel, serializeLayerRef, type LayerRef } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 
 export type LayerPanelProps = {
   /** Реестр слоёв из API: панель строится из него, а не из списка в коде. */
@@ -42,7 +43,11 @@ export default function LayerPanel({
   const cellCount = grid?.meta.cell_count ?? 0;
 
   return (
-    <section className={`layers layers--${expanded ? "expanded" : "collapsed"}`} aria-label="Слои карты">
+    <section
+      className={`layers layers--${expanded ? "expanded" : "collapsed"}`}
+      aria-label="Слои карты"
+      onClick={stopPanelClick}
+    >
       {/* На мобильном панель свёрнута в кнопку; на десктопе кнопка скрыта стилями */}
       <button
         type="button"

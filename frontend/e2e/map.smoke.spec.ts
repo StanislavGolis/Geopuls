@@ -783,6 +783,44 @@ test("старая ссылка с profile=1 открывает вкладку �
   await expect(page.getByTestId("tab-city")).toHaveAttribute("aria-selected", "true");
 });
 
+test("виджеты зон: топ зон и классы плотности считаются по нарисованной сетке", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Панель открыта по умолчанию: это ответ на «где выбранного больше всего»
+  const widgets = page.getByTestId("cell-widgets");
+  await expect(widgets).toBeVisible();
+  await expect(widgets).toContainText("Топ зон");
+  await expect(widgets).toContainText("Классы плотности");
+  // Наблюдения, а не вердикты (ADR 0015)
+  await expect(widgets).not.toContainText("перегрев");
+
+  // Клик по классу плотности подсвечивает зоны контуром: контуры получают данные
+  await page.getByTestId("widget-class-0").click();
+  await expect(page.getByTestId("widget-class-0")).toHaveAttribute("aria-pressed", "true");
+  await expect
+    .poll(async () =>
+      page.evaluate(() => window.__geopulsMap?.querySourceFeatures("cells-selected").length ?? 0),
+    )
+    .toBeGreaterThan(0);
+
+  // Клик по зоне открывает её карточку и живёт в ссылке — тот же выбор, что кликом по карте
+  await widgets.locator('[data-testid^="widget-zone-"]').first().click();
+  await expect(page.getByTestId("poi-panel")).toBeVisible();
+  await expect.poll(() => page.url()).toContain("cell=");
+
+  // Кнопка «Зоны» в панели сцены скрывает и возвращает сводку
+  await page.getByTestId("poi-panel").getByRole("button", { name: /Закрыть/ }).click();
+  await page.getByTestId("widgets-close").click();
+  await expect(page.getByTestId("cell-widgets")).toHaveCount(0);
+  await page.getByTestId("toggle-widgets").click();
+  await expect(page.getByTestId("cell-widgets")).toBeVisible();
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
@@ -838,7 +876,8 @@ test("мобильная вёрстка: чипы категорий, свёрн
 
   await toggle.click();
   await expect(legendBody.getByText("Плотность, POI/км²")).toBeVisible();
-  await expect(page.getByText("пусто")).toBeVisible();
+  // «пусто» есть и в сводке по зонам: проверяем именно легенду, а не любое совпадение на странице
+  await expect(legendBody.getByText("пусто")).toBeVisible();
 
   // Кнопки действий на телефоне — только иконки
   await expect(page.locator(".topbar__button-label").first()).toBeHidden();

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { pluralObjects } from "@/lib/format";
 import { legendItems } from "@/lib/heat";
 import { metricLabel, type LayerLegend } from "@/lib/layers";
+import { stopPanelClick } from "@/lib/panels";
 
 export type LegendProps = {
   /** Базовый слой: его значениями раскрашена карта (null — данные ещё не приехали). */
@@ -37,6 +38,7 @@ export default function Legend({
     <section
       className={`legend legend--${expanded ? "expanded" : "collapsed"}`}
       aria-label="Легенда карты"
+      onClick={stopPanelClick}
     >
       {/* На мобильном легенда свёрнута в кнопку; на десктопе кнопка скрыта стилями */}
       <button

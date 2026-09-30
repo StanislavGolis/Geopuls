@@ -54,6 +54,8 @@ const DEBUG_MAP_REQUESTED =
 export type MapViewHandle = {
   /** Канвас карты — нужен для экспорта текущего вида в PNG. */
   getCanvas: () => HTMLCanvasElement | null;
+  /** Подвести зону к экрану: клик по зоне в виджете «Топ зон» должен показать её, а не только выбрать. */
+  focusCell: (h3: string) => void;
 };
 
 export type MapViewProps = {
@@ -70,8 +72,13 @@ export type MapViewProps = {
   onViewChange: (view: { lat: number; lon: number; zoom: number }) => void;
   /** Выбранная ячейка — подсвечиваем контуром. */
   selectedCell?: string | null;
-  /** Ячейки сравнения: подсвечиваем все, чтобы видеть зоны на карте, а не только в таблице. */
-  compareCells?: string[];
+  /**
+   * Контуры зон: сравнение и подсвеченный класс плотности.
+   *
+   * Оба случая рисуются одним слоем, потому что и там и здесь смысл один — «вот эти зоны». Разные слои
+   * конкурировали бы за одно и то же место на карте.
+   */
+  outlineCells?: string[];
   /** Круг радиуса: показывает, какие именно метры посчитала панель «что вокруг точки». */
   around?: { lat: number; lon: number; radiusM: number } | null;
   /** Клик по карте в режиме радиуса: наружу уходят координаты точки под курсором. */
@@ -124,6 +131,32 @@ function poiCollection(items: PoiItem[]): GeoJSON.FeatureCollection {
       geometry: { type: "Point", coordinates: [item.lon, item.lat] },
     })),
   } as GeoJSON.FeatureCollection;
+}
+
+/**
+ * Границы зоны: их просит карта, когда виджет «Топ зон» подводит выбранную зону к экрану.
+ *
+ * Обходим координаты полигона рекурсивно: у ячейки это вложенный массив, а тип GeoJSON его описывает
+ * слишком широко, чтобы взять готовый bbox без разбора.
+ */
+function cellBounds(feature: GeoJSON.Feature): LngLatBounds | null {
+  const geometry = feature.geometry;
+  if (!geometry || !("coordinates" in geometry)) return null;
+
+  const points: [number, number][] = [];
+  const collect = (value: unknown): void => {
+    if (!Array.isArray(value)) return;
+    if (typeof value[0] === "number" && typeof value[1] === "number") {
+      points.push([value[0] as number, value[1] as number]);
+      return;
+    }
+    value.forEach(collect);
+  };
+  collect((geometry as GeoJSON.Polygon).coordinates);
+
+  const first = points[0];
+  if (!first) return null;
+  return points.reduce((bounds, point) => bounds.extend(point), new LngLatBounds(first, first));
 }
 
 /** Сколько ждать стиль подложки перед переходом на минимальный локальный стиль. */
@@ -197,7 +230,7 @@ export default function MapView({
   onCellSelect,
   onViewChange,
   selectedCell = null,
-  compareCells = [],
+  outlineCells = [],
   around = null,
   onPointSelect,
   category = null,
@@ -229,7 +262,28 @@ export default function MapView({
   aroundRef.current = around;
   pointSelectRef.current = onPointSelect;
 
-  useImperativeHandle(ref, () => ({ getCanvas: () => mapRef.current?.getCanvas() ?? null }), []);
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCanvas: () => mapRef.current?.getCanvas() ?? null,
+      focusCell: (h3: string) => {
+        const map = mapRef.current;
+        const feature = latestFeaturesRef.current.features.find(
+          (item) => String(item.properties.h3) === h3,
+        );
+        const bounds = feature ? cellBounds(feature) : null;
+        if (!map || !bounds) return;
+        try {
+          // maxZoom: одна ячейка не должна разворачиваться в квартал — иначе теряется контекст района
+          map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 600 });
+        } catch (error) {
+          // Неудачное подведение карты не отменяет выбор зоны: решение принято, ошибка — деталь
+          console.warn("Не удалось подвести карту к зоне:", error);
+        }
+      },
+    }),
+    [],
+  );
 
   /**
    * Данные карты: заливка базового слоя, значения наложений, состав контурных слоёв.
@@ -525,8 +579,8 @@ export default function MapView({
     if (!map || !map.getSource(CELLS_SOURCE)) return;
 
     applyGrid(map);
-    applySelected(map, selectedCell, compareCells);
-  }, [grid, selectedCell, compareCells, applyGrid, applySelected]);
+    applySelected(map, selectedCell, outlineCells);
+  }, [grid, selectedCell, outlineCells, applyGrid, applySelected]);
 
   /**
    * Точки объектов выбранной ячейки — только выбранной категории.
