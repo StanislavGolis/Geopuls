@@ -1,0 +1,468 @@
+{
+  "generated_at": "2026-09-30T11:15:51+00:00",
+  "город": "tomsk",
+  "центр": "56.4847, 84.9482",
+  "порог совпадения, °": 0.0003,
+  "данные": "Overture Maps (публичный релиз), срезы сняты по bbox города",
+  "sections": [
+    {
+      "title": "Overture places",
+      "facts": {
+        "релиз Overture": "2026-09-23.1",
+        "всего в bbox": 3951,
+        "в границах города": 3599,
+        "радиус ядра, км": 10.0,
+        "в ядре": 3324,
+        "с названием, %": 100.0,
+        "с адресом, %": 99.3,
+        "с брендом, %": 17.5,
+        "средняя confidence": 0.678,
+        "заполненный operating_status": 0,
+        "источник обновлялся с": "2020-12-31T00:00:00.000",
+        "источник обновлялся по": "2026-09-17T22:52:12Z"
+      },
+      "tables": {
+        "basic_category (топ-25)": [
+          {
+            "category": "shopping",
+            "places": 328
+          },
+          {
+            "category": "food_and_beverage_store",
+            "places": 187
+          },
+          {
+            "category": "restaurant",
+            "places": 178
+          },
+          {
+            "category": "personal_or_beauty_service",
+            "places": 155
+          },
+          {
+            "category": "fashion_and_apparel_store",
+            "places": 148
+          },
+          {
+            "category": "—",
+            "places": 112
+          },
+          {
+            "category": "hardware_home_and_garden_store",
+            "places": 90
+          },
+          {
+            "category": "electronics_store",
+            "places": 75
+          },
+          {
+            "category": "historic_site",
+            "places": 74
+          },
+          {
+            "category": "bar",
+            "places": 71
+          },
+          {
+            "category": "cafe",
+            "places": 70
+          },
+          {
+            "category": "hospital",
+            "places": 68
+          },
+          {
+            "category": "professional_service",
+            "places": 67
+          },
+          {
+            "category": "wellness_service",
+            "places": 62
+          },
+          {
+            "category": "coffee_shop",
+            "places": 60
+          },
+          {
+            "category": "automotive_service",
+            "places": 59
+          },
+          {
+            "category": "bank_or_credit_union",
+            "places": 52
+          },
+          {
+            "category": "college_university",
+            "places": 51
+          },
+          {
+            "category": "gym",
+            "places": 49
+          },
+          {
+            "category": "hotel",
+            "places": 49
+          },
+          {
+            "category": "campus_building",
+            "places": 47
+          },
+          {
+            "category": "real_estate_service",
+            "places": 46
+          },
+          {
+            "category": "gas_station",
+            "places": 44
+          },
+          {
+            "category": "place_of_learning",
+            "places": 44
+          },
+          {
+            "category": "park",
+            "places": 42
+          }
+        ],
+        "taxonomy.primary (топ-30)": [
+          {
+            "category": "shopping",
+            "places": 328
+          },
+          {
+            "category": "grocery_store",
+            "places": 168
+          },
+          {
+            "category": "—",
+            "places": 117
+          },
+          {
+            "category": "beauty_salon",
+            "places": 107
+          },
+          {
+            "category": "historic_site",
+            "places": 74
+          },
+          {
+            "category": "hospital",
+            "places": 68
+          },
+          {
+            "category": "restaurant",
+            "places": 65
+          },
+          {
+            "category": "cafe",
+            "places": 65
+          },
+          {
+            "category": "spa",
+            "places": 61
+          },
+          {
+            "category": "coffee_shop",
+            "places": 60
+          },
+          {
+            "category": "professional_service",
+            "places": 55
+          },
+          {
+            "category": "college_university",
+            "places": 51
+          },
+          {
+            "category": "clothing_store",
+            "places": 50
+          },
+          {
+            "category": "gym",
+            "places": 49
+          },
+          {
+            "category": "hotel",
+            "places": 49
+          },
+          {
+            "category": "campus_building",
+            "places": 44
+          },
+          {
+            "category": "gas_station",
+            "places": 44
+          },
+          {
+            "category": "bar",
+            "places": 42
+          },
+          {
+            "category": "park",
+            "places": 42
+          },
+          {
+            "category": "furniture_store",
+            "places": 40
+          },
+          {
+            "category": "school",
+            "places": 39
+          },
+          {
+            "category": "mobile_phone_store",
+            "places": 37
+          },
+          {
+            "category": "post_office",
+            "places": 37
+          },
+          {
+            "category": "bank",
+            "places": 36
+          },
+          {
+            "category": "shopping_mall",
+            "places": 35
+          },
+          {
+            "category": "travel_and_transportation",
+            "places": 34
+          },
+          {
+            "category": "real_estate_service",
+            "places": 34
+          },
+          {
+            "category": "dental_clinic",
+            "places": 34
+          },
+          {
+            "category": "education",
+            "places": 33
+          },
+          {
+            "category": "automotive_repair",
+            "places": 32
+          }
+        ],
+        "источники и лицензии": [
+          {
+            "dataset": "Overture",
+            "license": "CDLA-Permissive-2.0",
+            "records": 3599
+          },
+          {
+            "dataset": "meta",
+            "license": "CDLA-Permissive-2.0",
+            "records": 2778
+          },
+          {
+            "dataset": "AllThePlaces",
+            "license": "CC0-1.0",
+            "records": 475
+          },
+          {
+            "dataset": "Foursquare",
+            "license": "Apache-2.0",
+            "records": 339
+          },
+          {
+            "dataset": "Microsoft",
+            "license": "CDLA-Permissive-2.0",
+            "records": 7
+          }
+        ],
+        "confidence": [
+          {
+            "bucket": "0.00–0.25",
+            "places": 2
+          },
+          {
+            "bucket": "0.25–0.50",
+            "places": 571
+          },
+          {
+            "bucket": "0.50–0.75",
+            "places": 1393
+          },
+          {
+            "bucket": "0.75–1.00",
+            "places": 1633
+          }
+        ]
+      }
+    },
+    {
+      "title": "Сопоставление с нашими категориями (в границах города)",
+      "facts": {},
+      "tables": {
+        "категории": [
+          {
+            "категория": "cafe",
+            "Overture": 125,
+            "наши (OSM)": 250,
+            "нет у нас": 75,
+            "доля новых, %": 60.0,
+            "значения Overture": "cafe, coffee_shop"
+          },
+          {
+            "категория": "restaurant",
+            "Overture": 92,
+            "наши (OSM)": 248,
+            "нет у нас": 57,
+            "доля новых, %": 62.0,
+            "значения Overture": "restaurant, fast_food_restaurant"
+          },
+          {
+            "категория": "bar",
+            "Overture": 71,
+            "наши (OSM)": 60,
+            "нет у нас": 50,
+            "доля новых, %": 70.4,
+            "значения Overture": "bar, pub, beer_bar, wine_bar, cocktail_bar, hookah_bar, gastropub"
+          },
+          {
+            "категория": "pharmacy",
+            "Overture": 25,
+            "наши (OSM)": 238,
+            "нет у нас": 13,
+            "доля новых, %": 52.0,
+            "значения Overture": "pharmacy, drugstore"
+          },
+          {
+            "категория": "beauty",
+            "Overture": 145,
+            "наши (OSM)": 332,
+            "нет у нас": 81,
+            "доля новых, %": 55.9,
+            "значения Overture": "beauty_salon, barber, hair_salon, nail_salon, tanning_salon, hair_removal"
+          },
+          {
+            "категория": "fitness",
+            "Overture": 59,
+            "наши (OSM)": 41,
+            "нет у нас": 53,
+            "доля новых, %": 89.8,
+            "значения Overture": "gym, sport_or_fitness_facility"
+          },
+          {
+            "категория": "grocery",
+            "Overture": 193,
+            "наши (OSM)": 496,
+            "нет у нас": 111,
+            "доля новых, %": 57.5,
+            "значения Overture": "grocery_store, convenience_store, organic_grocery_store, supermarket"
+          },
+          {
+            "категория": "pickup_point",
+            "Overture": 40,
+            "наши (OSM)": 435,
+            "нет у нас": 24,
+            "доля новых, %": 60.0,
+            "значения Overture": "post_office, shipping_center, parcel_locker"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Overture base/infrastructure",
+      "facts": {
+        "всего в bbox": 33999,
+        "в ядре": 16400,
+        "транзит (классы остановок)": 2022
+      },
+      "tables": {
+        "class (топ-20)": [
+          {
+            "class": "fence",
+            "features": 10274
+          },
+          {
+            "class": "power_tower",
+            "features": 3828
+          },
+          {
+            "class": "power_pole",
+            "features": 3376
+          },
+          {
+            "class": "parking",
+            "features": 2395
+          },
+          {
+            "class": "crossing",
+            "features": 1700
+          },
+          {
+            "class": "gate",
+            "features": 1495
+          },
+          {
+            "class": "kerb",
+            "features": 1472
+          },
+          {
+            "class": "stop_position",
+            "features": 1030
+          },
+          {
+            "class": "bench",
+            "features": 1014
+          },
+          {
+            "class": "bus_stop",
+            "features": 968
+          },
+          {
+            "class": "waste_disposal",
+            "features": 431
+          },
+          {
+            "class": "substation",
+            "features": 431
+          },
+          {
+            "class": "lift_gate",
+            "features": 415
+          },
+          {
+            "class": "give_way",
+            "features": 394
+          },
+          {
+            "class": "wall",
+            "features": 375
+          },
+          {
+            "class": "atm",
+            "features": 349
+          },
+          {
+            "class": "pipeline",
+            "features": 333
+          },
+          {
+            "class": "fire_hydrant",
+            "features": 288
+          },
+          {
+            "class": "bridge",
+            "features": 285
+          },
+          {
+            "class": "traffic_signals",
+            "features": 233
+          }
+        ],
+        "источники и лицензии": [
+          {
+            "dataset": "OpenStreetMap",
+            "license": "ODbL-1.0",
+            "records": 33999
+          }
+        ]
+      }
+    }
+  ]
+}
