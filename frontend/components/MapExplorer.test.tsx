@@ -18,11 +18,13 @@ vi.mock("./MapView", () => ({
   default: ({
     grid,
     onCellSelect,
+    onPointSelect,
     selectedCell,
     category,
   }: {
     grid: LayerGrid | null;
     onCellSelect: (h3: string) => void;
+    onPointSelect?: (point: { lat: number; lon: number }) => void;
     selectedCell: string | null;
     category?: string | null;
   }) => (
@@ -38,6 +40,16 @@ vi.mock("./MapView", () => ({
       <button type="button" data-testid="click-cell-res8" onClick={() => onCellSelect("880b86a59dfffff")}>
         клик по ячейке res 8
       </button>
+      {/* Точку радиуса ставит карта: обработчик появляется только в режиме радиуса (ADR 0016) */}
+      {onPointSelect && (
+        <button
+          type="button"
+          data-testid="click-point"
+          onClick={() => onPointSelect({ lat: 56.4847, lon: 84.9482 })}
+        >
+          клик по карте в режиме радиуса
+        </button>
+      )}
     </div>
   ),
 }));
@@ -274,11 +286,17 @@ describe("MapExplorer", () => {
     );
   });
 
-  it("читает базовый слой из query-параметров", async () => {
+  it("вкладка «Инфраструктура» красит карту выбранным показателем", async () => {
     render(
       <MapExplorer
         styleUrl="style.json"
-        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", base: "population", overlays: "transport" }}
+        initialState={{
+          ...EMPTY_URL_STATE,
+          city: "tomsk",
+          tab: "infrastructure",
+          base: "population",
+          overlays: "transport",
+        }}
       />,
     );
 
@@ -287,6 +305,7 @@ describe("MapExplorer", () => {
     expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
       expect.objectContaining({ base: "population", overlays: "transport" }),
     );
+    expect(screen.getByTestId("tab-infrastructure").getAttribute("aria-selected")).toBe("true");
   });
 
   it("старая ссылка с одной категорией открывает ту же карту", async () => {
@@ -478,11 +497,14 @@ describe("MapExplorer", () => {
     await waitFor(() => expect(screen.getByTestId("map-category").textContent).toBe("bar"));
   });
 
-  it("режим сравнения: клик по гексу набирает зоны и попадает в ссылку", async () => {
+  it("режим сравнения открывается из «Инструментов»: клик по гексу набирает зоны", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("open-compare"));
+    fireEvent.click(screen.getByTestId("tab-tools"));
+    // Пока инструмент не выбран, вкладка предлагает выбор: два инструмента, а не пять кнопок в шапке
+    fireEvent.click(await screen.findByTestId("tool-compare"));
+
     // Пока зон меньше двух, панель объясняет, что делать — таблицы ещё нет
     expect(await screen.findByTestId("compare-hint")).toBeTruthy();
 
@@ -494,22 +516,66 @@ describe("MapExplorer", () => {
     await waitFor(() => expect(window.location.search).not.toContain("compare="));
   });
 
-  it("профиль города открывается кнопкой и живёт в ссылке", async () => {
+  it("инструмент «Радиус» включает режим: подсказка объясняет, что делать", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("open-profile"));
+    fireEvent.click(screen.getByTestId("tab-tools"));
+    fireEvent.click(await screen.findByTestId("tool-radius"));
+
+    expect(await screen.findByTestId("around-hint")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("click-point"));
+    await waitFor(() => expect(window.location.search).toContain("around="));
+    // Круг радиуса на карте считается тем же радиусом, что уходит в запрос
+    expect(await screen.findByTestId("around-panel")).toBeTruthy();
+  });
+
+  it("вкладка «Город» — состояние ссылки: ей делятся, а не открывают заново", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("tab-city"));
 
     const panel = await screen.findByTestId("city-profile");
     expect(panel.textContent).toContain("Томск");
     expect(apiMock.fetchCityProfile).toHaveBeenCalledWith("tomsk");
-    // Ссылкой на сводку делятся: состояние уходит в адресную строку
-    await waitFor(() => expect(window.location.search).toContain("profile=1"));
+    // Ссылкой на сводку делятся: сцена уходит в адресную строку
+    await waitFor(() => expect(window.location.search).toContain("tab=city"));
 
     fireEvent.click(screen.getByTestId("city-profile-close"));
 
     await waitFor(() => expect(screen.queryByTestId("city-profile")).toBeNull());
-    await waitFor(() => expect(window.location.search).not.toContain("profile=1"));
+    // Закрытие сводки возвращает на основную вкладку, а не оставляет пустую сцену
+    expect(screen.getByTestId("tab-competitors").getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(window.location.search).not.toContain("tab=city"));
+  });
+
+  it("вкладки хранят выбор пользователя: категория не сбрасывается при переходах", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("chip-bar"));
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenLastCalledWith(
+        expect.objectContaining({ base: "competitors:bar" }),
+      ),
+    );
+
+    // Уходим в «Инфраструктуру» и возвращаемся: категория остаётся выбранной
+    fireEvent.click(screen.getByTestId("tab-infrastructure"));
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenLastCalledWith(
+        expect.objectContaining({ base: expect.stringContaining("population") }),
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId("tab-competitors"));
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenLastCalledWith(
+        expect.objectContaining({ base: "competitors:bar" }),
+      ),
+    );
   });
 
   it("включение слоя меняет запрос и попадает в ссылку", async () => {
@@ -542,15 +608,39 @@ describe("MapExplorer", () => {
     await waitFor(() => expect(window.location.search).toContain("overlays=transport,population,pedestrian"));
   });
 
-  it("основу карты переключить нельзя: карту всегда красит слой конкурентов", async () => {
+  it("основу карты в «Конкурентах» не переключают: это главный ответ приложения", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    // Переключателя базового слоя в интерфейсе нет: смена основы меняла бы главный ответ приложения
+    // В «Конкурентах» выбора основы нет: он живёт во вкладке «Инфраструктура» (ADR 0016)
     expect(screen.queryByTestId("base-population")).toBeNull();
+    expect(screen.queryByTestId("infra-layer")).toBeNull();
     expect(screen.getByTestId("layer-base")).toBeTruthy();
     expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
       expect.objectContaining({ base: "competitors:cafe" }),
+    );
+  });
+
+  it("смена показателя в «Инфраструктуре» меняет основу карты и попадает в ссылку", async () => {
+    render(
+      <MapExplorer
+        styleUrl="style.json"
+        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", tab: "infrastructure" }}
+      />,
+    );
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    // Показатели берутся из реестра слоёв: интерфейс не хранит свой список
+    const picker = await screen.findByTestId("infra-layer");
+    expect(picker.textContent).toContain("Транспорт");
+
+    fireEvent.change(picker, { target: { value: "pedestrian" } });
+
+    await waitFor(() => expect(window.location.search).toContain("base=pedestrian"));
+    await waitFor(() =>
+      expect(apiMock.fetchLayerGrid).toHaveBeenLastCalledWith(
+        expect.objectContaining({ base: "pedestrian" }),
+      ),
     );
   });
 

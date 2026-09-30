@@ -43,10 +43,12 @@ describe("parseUrlState", () => {
     expect(state.res).toBeNull();
   });
 
-  it("на пустой строке возвращает пустое состояние", () => {
-    expect(parseUrlState("")).toEqual(EMPTY_URL_STATE);
-    expect(parseUrlState("?")).toEqual(EMPTY_URL_STATE);
-    expect(parseUrlState({})).toEqual(EMPTY_URL_STATE);
+  it("на пустой строке возвращает пустое состояние (кроме выведенной вкладки)", () => {
+    // Вкладка выводится всегда: без ссылки это основная сцена «Конкуренты» (ADR 0016)
+    const empty = { ...EMPTY_URL_STATE, tab: "competitors" as const };
+    expect(parseUrlState("")).toEqual(empty);
+    expect(parseUrlState("?")).toEqual(empty);
+    expect(parseUrlState({})).toEqual(empty);
   });
 
   it("разрешение выводится из зума, а при его отсутствии — из параметра res", () => {
@@ -99,19 +101,32 @@ describe("buildSearch", () => {
       compare: null,
       around: { lat: 56.4847, lon: 84.9482 },
       radius: 1000,
-      profile: false,
       res: 9 as const,
       zoom: 13,
       center: { lat: 56.473, lon: 85.024 },
     };
 
-    expect(parseUrlState(buildSearch(original))).toEqual(original);
+    // Вкладку ссылка не хранит: клиент выводит её из состояния (точка радиуса → «Инструменты»)
+    expect(parseUrlState(buildSearch(original))).toEqual({ ...original, tab: "tools" });
   });
 
-  it("профиль города — состояние ссылки: им делятся, а не открывают заново", () => {
-    expect(buildSearch({ city: "tomsk", profile: true })).toBe("city=tomsk&profile=1");
-    expect(parseUrlState("?city=tomsk&profile=1").profile).toBe(true);
-    expect(parseUrlState("?city=tomsk").profile).toBe(false);
+  it("вкладка города — состояние ссылки: ей делятся, а не открывают заново", () => {
+    expect(buildSearch({ city: "tomsk", tab: "city" })).toBe("city=tomsk&tab=city");
+    expect(parseUrlState("?city=tomsk&tab=city").tab).toBe("city");
+    // Основная вкладка в ссылку не пишется: это состояние по умолчанию
+    expect(buildSearch({ city: "tomsk", tab: "competitors" })).toBe("city=tomsk");
+    expect(parseUrlState("?city=tomsk").tab).toBe("competitors");
+  });
+
+  it("вкладка выводится из состояния, если её нет в ссылке (совместимость)", () => {
+    // Профиль города раньше был отдельным экраном
+    expect(parseUrlState("?city=tomsk&profile=1").tab).toBe("city");
+    expect(parseUrlState("?city=tomsk&compare=890b80db643ffff,890b80db64bffff").tab).toBe("tools");
+    expect(parseUrlState("?city=tomsk&around=56.4847,84.9482").tab).toBe("tools");
+    expect(parseUrlState("?city=tomsk&base=competitors:cafe").tab).toBe("competitors");
+    expect(parseUrlState("?city=tomsk&base=residential").tab).toBe("infrastructure");
+    // Мусор вместо вкладки не роняет карту: показываем основную
+    expect(parseUrlState("?city=tomsk&tab=nowhere").tab).toBe("competitors");
   });
 
   it("точка радиуса живёт в ссылке — расчёт можно переслать", () => {

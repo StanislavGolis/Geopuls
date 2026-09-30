@@ -672,7 +672,9 @@ test("радиус: клик по карте считает, что вокруг
     timeout: 30_000,
   });
 
-  await page.getByTestId("open-around").click();
+  await page.getByTestId("tab-tools").click();
+  // Инструмент выбирают на вкладке: в шапке больше нет отдельных кнопок (ADR 0016)
+  await page.getByTestId("tool-radius").click();
   // Пока точки нет, режим объясняет, что делать: иначе он выглядит как «ничего не произошло»
   await expect(page.getByTestId("around-hint")).toBeVisible();
 
@@ -739,6 +741,46 @@ test("профиль города открывается по ссылке и о
   await page.getByTestId("city-profile-close").click();
   await expect(panel).toHaveCount(0);
   await expect(page).not.toHaveURL(/profile=1/);
+});
+
+test("вкладки переключают сцену и живут в ссылке", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+
+  // Основная вкладка — «Конкуренты»: она состояние по умолчанию, поэтому в ссылку не пишется
+  await expect(page.getByTestId("tab-competitors")).toHaveAttribute("aria-selected", "true");
+  await expect(page).not.toHaveURL(/tab=/);
+
+  // «Инфраструктура»: карту красит выбранный показатель, его slug уезжает в base (ADR 0016)
+  await page.getByTestId("tab-infrastructure").click();
+  await expect(page.getByTestId("tab-infrastructure")).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/tab=infrastructure/);
+  await expect(page).toHaveURL(/base=/);
+  await expect(page.getByTestId("infra-layer")).toBeVisible();
+  // Категория конкурентов здесь не при чём: выбор показателя заменяет её
+  await expect(page).not.toHaveURL(/category=/);
+
+  // «Город»: сводка открывается вкладкой, а не кнопкой поверх карты
+  await page.getByTestId("tab-city").click();
+  await expect(page.getByTestId("tab-city")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("city-profile")).toBeVisible();
+  await expect(page).toHaveURL(/tab=city/);
+
+  // Возврат на основную вкладку убирает сцену города и её параметр из ссылки
+  await page.getByTestId("tab-competitors").click();
+  await expect(page.getByTestId("city-profile")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/tab=/);
+});
+
+test("старая ссылка с profile=1 открывает вкладку «Город»", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  // Ссылки, разошедшиеся до вкладок, обязаны открывать то же самое (ADR 0016)
+  await page.goto(`${MAP_URL}&profile=1`);
+  await waitForStyle(page);
+
+  await expect(page.getByTestId("city-profile")).toBeVisible();
+  await expect(page.getByTestId("tab-city")).toHaveAttribute("aria-selected", "true");
 });
 
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {

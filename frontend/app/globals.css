@@ -922,21 +922,27 @@ button:disabled {
 
 /* ── Профиль города: сводка «что это за город» (план развития, этап 1) ──────── */
 /* fixed, а не absolute: модальное окно обязано перекрывать и карту, и панели поверх неё */
+/*
+ * Панель города — сцена, а не модальное окно: затемнение и центрирование перекрывали панель вкладок,
+ * и переключиться из сводки было нельзя (ADR 0016). Справа во всю высоту карты: в этой сцене других
+ * панелей нет, а карточка зоны здесь не открывается.
+ */
 .city-profile {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: calc(var(--line-height-attribution) + 16px);
+  z-index: 5;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgb(15 23 42 / 45%);
+  justify-content: flex-end;
+  width: min(520px, calc(100% - 32px));
+  pointer-events: none;
 }
 
 .city-profile__card {
   display: flex;
   flex-direction: column;
-  width: min(680px, 100%);
+  width: 100%;
   max-height: 100%;
   overflow: hidden;
   /* Фон обязателен и непрозрачен: без него карточка просвечивает картой и текст не читается */
@@ -944,6 +950,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-raised);
+  pointer-events: auto;
 }
 
 .city-profile__head {
@@ -1082,6 +1089,136 @@ button:disabled {
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
+
+/* ── Панель сцены: вкладки и то, чем управляет текущая вкладка (ADR 0016) ──── */
+.scene-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.scene-bar__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+.scene-bar__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scene-bar__control select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.scene-bar__note {
+  padding-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scene-bar .chips {
+  padding-bottom: 2px;
+}
+
+/* ── Вкладки-сцены: Конкуренты / Инфраструктура / Инструменты / Город (ADR 0016) ── */
+.tabs {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  padding: 0 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tabs__tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.tabs__tab--active {
+  border-color: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Меню инструментов: вкладка «Инструменты» — расширяемая, пока в ней два инструмента.
+   Правый верх: левый занят панелью слоёв и легендой, а в этой сцене карточка зоны не открывается */
+.tools__menu {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(280px, calc(100% - 32px));
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+}
+
+.tools__title {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tools__button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.tools__button:hover {
+  background: var(--bg-subtle);
+}
+
+.tools__button span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Выбор показателя карты во вкладке «Инфраструктура» живёт в панели сцены (.scene-bar) */
 
 /* ── Сравнение зон: «зона против зоны» (план развития, этап 2) ─────────────── */
 /* Панель снизу, поверх легенды, но клики по карте не перехватывает: их ждёт режим сравнения */
@@ -1491,7 +1628,26 @@ button:disabled {
     text-align: center;
   }
 
-  /* На телефоне список объектов — «шторка» снизу, как в картах */
+  /* Категорию на телефоне выбирают чипами: селект скрыт. Правило живёт здесь, а не рядом с чипами:
+     `.scene-bar__control` объявлен ниже по файлу и при равной специфичности перебил бы его */
+  .scene-bar__control--select {
+    display: none;
+  }
+
+  /* Сводка города и карточка зоны на телефоне — «шторка» снизу, как в картах */
+  .city-profile {
+    top: auto;
+    right: 0;
+    bottom: var(--line-height-attribution);
+    left: 0;
+    width: 100%;
+  }
+
+  .city-profile__card {
+    max-height: 70vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
   .poi-panel {
     top: auto;
     right: 0;

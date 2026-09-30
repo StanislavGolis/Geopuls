@@ -16,6 +16,11 @@ export type LayerRef = { slug: string; category: string | null };
 /** Slug слоя и категории: латиница в нижнем регистре (как в справочниках и в API). */
 const REF_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+/**
+ * Слой конкурентов: его плотность — «главный ответ» приложения, а его вкладка — основная (ADR 0016).
+ */
+export const COMPETITORS_SLUG = "competitors";
+
 /** Разобрать ссылку на слой: `competitors:cafe` → `{ slug, category }`. */
 export function parseLayerRef(value: string | null | undefined): LayerRef | null {
   const trimmed = value?.trim() ?? "";

@@ -1,4 +1,5 @@
 import { DEFAULT_RADIUS_M, isValidRadius } from "@/lib/around";
+import { COMPETITORS_SLUG, parseLayerRef } from "@/lib/layers";
 
 /**
  * Состояние интерфейса в адресной строке (shareable URL, раздел 4.3 ТЗ).
@@ -21,12 +22,15 @@ export type UrlState = {
   cell: string | null;
   /** Ячейки в сравнении через запятую (2–5): сравнением делятся так же, как видом карты. */
   compare: string | null;
+  /**
+   * Вкладка-сцена (ADR 0016). `null` — не задана явно: тогда она выводится из состояния
+   * (`inferTab`), чтобы ссылки, разошедшиеся по людям, продолжали открывать то же самое.
+   */
+  tab: TabId | null;
   /** Точка, вокруг которой считаем радиус (`around=lat,lon`). */
   around: { lat: number; lon: number } | null;
   /** Радиус в метрах: значим только вместе с точкой. */
   radius: number | null;
-  /** Открыт профиль города (сводка по данным, раздел плана развития). */
-  profile: boolean;
   res: 8 | 9 | null;
   zoom: number | null;
   center: { lat: number; lon: number } | null;
@@ -43,13 +47,45 @@ export const EMPTY_URL_STATE: UrlState = {
   overlays: null,
   cell: null,
   compare: null,
+  tab: null,
   around: null,
   radius: null,
-  profile: false,
   res: null,
   zoom: null,
   center: null,
 };
+
+/** Вкладки-сцены: у каждой своя основа карты и своя панель данных (ADR 0016). */
+export const TAB_IDS = ["competitors", "infrastructure", "tools", "city"] as const;
+
+export type TabId = (typeof TAB_IDS)[number];
+
+/** Основная вкладка: она же состояние по умолчанию, поэтому в ссылке не пишется. */
+export const DEFAULT_TAB: TabId = "competitors";
+
+export function parseTab(value: string | null | undefined): TabId | null {
+  const trimmed = value?.trim() ?? "";
+  return (TAB_IDS as readonly string[]).includes(trimmed) ? (trimmed as TabId) : null;
+}
+
+/**
+ * Какая вкладка соответствует состоянию, если `tab` в ссылке не задан.
+ *
+ * Нужно для совместимости: ссылки, разошедшиеся до вкладок (`profile=1`, `compare=…`, `around=…`,
+ * `base=residential`), обязаны открывать то же, что открывали раньше.
+ */
+export function inferTab(state: {
+  base?: string | null;
+  compare?: string | null;
+  around?: { lat: number; lon: number } | null;
+  profile?: boolean;
+}): TabId {
+  if (state.profile) return "city";
+  if (state.compare || state.around) return "tools";
+  const baseSlug = parseLayerRef(state.base ?? null)?.slug ?? null;
+  if (baseSlug && baseSlug !== COMPETITORS_SLUG) return "infrastructure";
+  return DEFAULT_TAB;
+}
 
 /** Сколько ячеек можно сравнивать одновременно: больше — уже не таблица, а стена цифр. */
 export const MAX_COMPARE = 5;
@@ -147,10 +183,18 @@ export function parseUrlState(source: string | Record<string, string | string[] 
     overlays,
     cell,
     compare: compare.length > 0 ? compare.join(",") : null,
+    // Вкладка: явный `tab`, иначе выводим из состояния — старые ссылки без него работают
+    tab:
+      parseTab(params.get("tab")) ??
+      inferTab({
+        base,
+        compare: compare.length > 0 ? compare.join(",") : null,
+        around,
+        // До вкладок профиль был отдельным экраном: ссылки с `profile=1` открывают вкладку «Город»
+        profile: params.get("profile") === "1",
+      }),
     around,
     radius,
-    // Профиль города — это экран, а не значение: в ссылке он означает «открой сводку»
-    profile: params.get("profile") === "1",
     res,
     zoom,
     // Центр имеет смысл только вместе с зумом: иначе карта остаётся привязана к границам города
@@ -175,7 +219,10 @@ export function buildSearch(state: Partial<UrlState>): string {
   const cell = parseH3Cell(state.cell);
   const compare = parseCellList(state.compare);
 
+  // Вкладка пишется, только когда она не основная: основная — это состояние по умолчанию
+  const tab = parseTab(state.tab);
   if (city) push("city", city);
+  if (tab && tab !== DEFAULT_TAB) push("tab", tab);
   // `category` идёт рядом с `base` осознанно: так ссылка читается и старыми клиентами, и новыми
   // (вызывающий код передаёт `category` только для слоя, у которого есть категории)
   if (category) push("category", category);
@@ -188,7 +235,6 @@ export function buildSearch(state: Partial<UrlState>): string {
     push("around", `${state.around.lat.toFixed(5)},${state.around.lon.toFixed(5)}`);
     if (state.radius && state.radius !== DEFAULT_RADIUS_M) push("radius", String(state.radius));
   }
-  if (state.profile) push("profile", "1");
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {
     push("zoom", state.zoom.toFixed(2));

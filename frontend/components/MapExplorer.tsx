@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Crosshair, Scale, Share2 } from "lucide-react";
+import { Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AroundPanel from "@/components/AroundPanel";
@@ -12,6 +12,7 @@ import Legend from "@/components/Legend";
 import MapSkeleton from "@/components/MapSkeleton";
 import MapView, { type MapViewHandle } from "@/components/MapView";
 import PoiPanel, { type CellMetricView } from "@/components/PoiPanel";
+import TabNav from "@/components/TabNav";
 import {
   ApiError,
   type CategoryMeta,
@@ -38,16 +39,26 @@ import {
 import { formatDataVersion } from "@/lib/format";
 import { resolutionForZoom, resolutionOfCell } from "@/lib/heat";
 import {
+  COMPETITORS_SLUG,
   baseColumn,
   isPartiallyCovered,
   layerLegend,
   parseLayerList,
+  parseLayerRef,
   resolveBaseLayer,
   serializeLayerList,
   serializeLayerRef,
   type LayerRef,
 } from "@/lib/layers";
-import { EMPTY_URL_STATE, MAX_COMPARE, buildSearch, parseCellList, type UrlState } from "@/lib/urlState";
+import {
+  DEFAULT_TAB,
+  EMPTY_URL_STATE,
+  MAX_COMPARE,
+  buildSearch,
+  parseCellList,
+  type TabId,
+  type UrlState,
+} from "@/lib/urlState";
 
 export type MapExplorerProps = {
   /** URL стиля подложки (значение из окружения, см. docs/decisions/0002-basemap.md). */
@@ -76,8 +87,20 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   /** Реестр слоёв: из него строится панель и берутся источники с лицензиями (ADR 0013). */
   const [layers, setLayers] = useState<LayerMeta[]>([]);
   const [citySlug, setCitySlug] = useState<string | null>(initial.city);
-  /** Базовый слой — тот, что красит карту; вариант внутри слоя — его категория. */
-  const [baseRef, setBaseRef] = useState<LayerRef | null>(null);
+  /** Вкладка-сцена: у каждой своя основа карты и своя панель данных (ADR 0016). */
+  const [tab, setTab] = useState<TabId>(initial.tab ?? DEFAULT_TAB);
+  /**
+   * Категория конкурентов: живёт отдельно от вкладки, чтобы не сбрасывалась при переходах.
+   *
+   * Пользователь выбрал «аптеки», сходил на «Инфраструктуру» и вернулся — он должен увидеть аптеки,
+   * а не категорию по умолчанию.
+   */
+  const [competitorCategory, setCompetitorCategory] = useState<string | null>(initial.category);
+  /** Показатель карты во вкладке «Инфраструктура»: слой OSM, кроме конкурентов. */
+  const [infraSlug, setInfraSlug] = useState<string | null>(() => {
+    const ref = parseLayerRef(initial.base);
+    return ref && ref.slug !== COMPETITORS_SLUG ? ref.slug : null;
+  });
   /**
    * Дополнительные слои: их числа показываются в карточке выбранной ячейки.
    *
@@ -100,8 +123,6 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   );
   const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
   const [exporting, setExporting] = useState(false);
-  /** Профиль города: сводка по данным. Открывается кнопкой и живёт в ссылке (`profile=1`). */
-  const [profileOpen, setProfileOpen] = useState(initial.profile);
   /** Ячейки в сравнении: клик по карте добавляет и убирает их. Список живёт в ссылке. */
   const [compareRefs, setCompareRefs] = useState<string[]>(() => parseCellList(initial.compare));
   /** Режим сравнения: пока он включён, клик по гексу набирает зоны, а не открывает карточку объектов. */
@@ -126,6 +147,31 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     [initial.zoom, initial.center],
   );
 
+  /**
+   * Основа карты — производное от вкладки (ADR 0016).
+   *
+   * «Конкуренты», «Инструменты» и «Город» красят карту конкурентами: это главный ответ сервиса и
+   * понятный фон для измерений. «Инфраструктура» красит выбранным слоем — иначе вкладка была бы пустой.
+   */
+  const baseRef = useMemo<LayerRef | null>(() => {
+    if (layers.length === 0) return null;
+
+    if (tab === "infrastructure") {
+      const chosen =
+        layers.find((item) => item.slug === infraSlug && item.can_be_base) ??
+        layers.find((item) => item.can_be_base && item.slug !== COMPETITORS_SLUG);
+      return chosen ? { slug: chosen.slug, category: chosen.categories[0] ?? null } : null;
+    }
+
+    const competitors = layers.find((item) => item.slug === COMPETITORS_SLUG);
+    if (!competitors) return null;
+    const category =
+      competitorCategory && competitors.categories.includes(competitorCategory)
+        ? competitorCategory
+        : (competitors.categories[0] ?? null);
+    return { slug: COMPETITORS_SLUG, category };
+  }, [layers, tab, infraSlug, competitorCategory]);
+
   /** Ключи слоёв для запросов и ссылок: строка стабильна и годится как зависимость эффекта. */
   const baseKey = baseRef ? serializeLayerRef(baseRef) : null;
   const infoLayersKey = serializeLayerList(infoRefs);
@@ -145,18 +191,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
         setCategories(loadedCategories);
         setLayers(registry.layers);
         setCitySlug((current) => current ?? loadedCities[0]?.slug ?? null);
-        // Базовый слой: из ссылки, из старого `category` или первый, которым можно красить карту.
+        // Начальный выбор из ссылки: категория конкурентов или показатель инфраструктуры.
         // Вариант по умолчанию — категория с данными, а не первая в списке: пустая карта на первом
         // экране хуже честной подсказки о том, где данные есть
-        setBaseRef(
-          (current) =>
-            current ??
-            resolveBaseLayer(
-              registry.layers,
-              { base: initial.base, category: initial.category },
-              loadedCategories.find((item) => item.poi_count > 0)?.slug ?? null,
-            ),
+        const requested = resolveBaseLayer(
+          registry.layers,
+          { base: initial.base, category: initial.category },
+          loadedCategories.find((item) => item.poi_count > 0)?.slug ?? null,
         );
+        if (requested?.slug === COMPETITORS_SLUG) {
+          setCompetitorCategory((current) => current ?? requested.category);
+        } else if (requested) {
+          setInfraSlug((current) => current ?? requested.slug);
+        }
       } catch (exc) {
         if (cancelled) return;
         setError(asApiError(exc));
@@ -231,16 +278,24 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
     const search = buildSearch({
       city: citySlug,
-      // `category` дублирует вариант базового слоя: так ссылку читают клиенты, которые про слои ещё
-      // не знают, и не ломаются уже разошедшиеся ссылки (см. lib/urlState.ts)
-      category: baseRef.category,
-      base: serializeLayerRef(baseRef),
+      // Вкладка пишется, когда она не основная — ссылка открывает ту же сцену (ADR 0016)
+      tab,
+      // `category` — категория конкурентов: так ссылку читают клиенты, которые про слои ещё не знают,
+      // и не ломаются уже разошедшиеся ссылки (см. lib/urlState.ts). Во вкладке «Инфраструктура»
+      // категории нет: там показатель задаётся самим слоем
+      category: tab === "infrastructure" ? null : competitorCategory,
+      // Показатель инфраструктуры пишем без категории: у этих слоёв вариант один.
+      // Если пользователь ещё не выбирал показатель, в ссылку идёт тот, которым карта уже покрашена:
+      // ссылка должна описывать то, что на экране, а не то, что мы собирались показать
+      base:
+        tab === "infrastructure"
+          ? (infraSlug ?? baseRef?.slug ?? null)
+          : serializeLayerRef(baseRef),
       overlays: infoLayersKey || null,
       cell: selectedCell,
       compare: compareRefs.join(",") || null,
       around: aroundPoint,
       radius: aroundPoint ? radiusM : null,
-      profile: profileOpen,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
@@ -248,11 +303,13 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
   }, [
     citySlug,
+    tab,
+    competitorCategory,
+    infraSlug,
     baseRef,
     infoLayersKey,
     selectedCell,
     compareRefs,
-    profileOpen,
     aroundPoint,
     radiusM,
     res,
@@ -270,11 +327,21 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   );
   const baseCategory = baseRef?.category ?? null;
   /** Варианты есть не у каждого слоя: чипы и селект категорий показываем только там, где они есть. */
-  const categoryOptions = baseLayer?.categories ?? [];
+  const competitorLayer = useMemo(
+    () => layers.find((item) => item.slug === COMPETITORS_SLUG) ?? null,
+    [layers],
+  );
+  /** Категории берём у слоя конкурентов: их выбирают и в «Конкурентах», и в «Инструментах». */
+  const categoryOptions = competitorLayer?.categories ?? [];
   /** Категории показываем только те, что есть у базового слоя: чужие варианты на карте не значат ничего. */
   const visibleCategories = useMemo(
     () => categories.filter((item) => categoryOptions.includes(item.slug)),
     [categories, categoryOptions],
+  );
+  /** Показатели вкладки «Инфраструктура»: слои OSM, кроме конкурентов. */
+  const infraLayers = useMemo(
+    () => layers.filter((item) => item.slug !== COMPETITORS_SLUG && item.can_be_base),
+    [layers],
   );
   const baseColumnData = useMemo(() => (grid ? baseColumn(grid) : null), [grid]);
   /**
@@ -372,24 +439,45 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   }, []);
 
   /**
-   * Режимы «Сравнить» и «Радиус» отвечают на разные вопросы, и оба забирают клик по карте: включёнными
-   * одновременно они невозможны — человек не угадает, что сделает клик. Включение одного закрывает
-   * другой вместе с его точкой: недосказанный расчёт лучше чужого круга на карте.
+   * Выбор инструмента во вкладке «Инструменты».
+   *
+   * Оба инструмента забирают клик по карте, поэтому включён ровно один: иначе человек не угадает, что
+   * сделает клик. Переход на сравнение убирает точку радиуса — круг, оставшийся «ни от чего», читался бы
+   * как чужой расчёт.
    */
-  const toggleCompare = useCallback(() => {
-    setCompareOpen((current) => !current);
-    setAroundOpen(false);
-    setAroundPoint(null);
+  const openTool = useCallback((tool: "radius" | "compare") => {
+    setCompareOpen(tool === "compare");
+    setAroundOpen(tool === "radius");
+    if (tool === "compare") setAroundPoint(null);
   }, []);
 
-  const toggleAround = useCallback(() => {
-    setAroundOpen((current) => !current);
-    setCompareOpen(false);
-  }, []);
+  /**
+   * Переход на вкладку: основа карты меняется, а выбор пользователя сохраняется.
+   *
+   * Категория конкурентов и показатель инфраструктуры живут отдельно от вкладки, поэтому «сходил и
+   * вернулся» возвращает то же, что было. Режимы, которые перехватывают клик по карте, гасим: на другой
+   * вкладке клик означает другое (карточку зоны), и «невидимый» режим сравнения там только мешал бы.
+   */
+  const handleTabChange = useCallback(
+    (next: TabId) => {
+      setTab(next);
+      setSelectedCell(null);
 
-  /** Смена варианта базового слоя: слой остаётся, меняется категория внутри него. */
+      if (next !== "tools") {
+        setCompareOpen(false);
+        setAroundOpen(false);
+        return;
+      }
+      // Возвращаемся в «Инструменты» — продолжаем то, что уже набрано
+      setCompareOpen(compareRefs.length > 0);
+      setAroundOpen(aroundPoint !== null);
+    },
+    [aroundPoint, compareRefs.length],
+  );
+
+  /** Смена категории конкурентов: карта перекрашивается, выбранная зона сбрасывается. */
   const selectCategory = useCallback((slug: string) => {
-    setBaseRef((current) => (current ? { ...current, category: slug } : current));
+    setCompetitorCategory(slug);
     setSelectedCell(null);
   }, []);
 
@@ -491,85 +579,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </select>
         </label>
 
-        {categoryOptions.length > 0 && (
-          <label className="topbar__control topbar__control--category">
-            <span className="topbar__label">Категория</span>
-            <select
-              aria-label="Категория"
-              value={baseCategory ?? ""}
-              onChange={(event) => selectCategory(event.target.value)}
-            >
-              {visibleCategories.map((item) => (
-                <option key={item.slug} value={item.slug}>
-                  {item.name}
-                  {item.poi_count === 0 ? " — нет данных" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {/* На мобильном категорию выбирают чипами: селект скрыт стилями, чипы — наоборот */}
-        {categoryOptions.length > 0 && (
-          <div className="chips" role="group" aria-label="Категории">
-            {visibleCategories.map((item) => (
-              <button
-                key={item.slug}
-                type="button"
-                className={`chip${item.slug === baseCategory ? " chip--active" : ""}`}
-                aria-pressed={item.slug === baseCategory}
-                data-testid={`chip-${item.slug}`}
-                onClick={() => selectCategory(item.slug)}
-              >
-                {item.name}
-                {item.poi_count === 0 ? " — нет данных" : ""}
-              </button>
-            ))}
-          </div>
-        )}
-
         <span className="topbar__spacer" />
 
         <div className="topbar__actions">
-          <button
-            type="button"
-            className="topbar__button"
-            onClick={toggleCompare}
-            disabled={!citySlug}
-            aria-pressed={compareOpen}
-            data-testid="open-compare"
-            title="Сравнить зоны: включается режим, клик по гексам набирает зоны"
-          >
-            <Scale size={16} aria-hidden="true" />
-            <span className="topbar__button-label">Сравнить</span>
-          </button>
-
-          <button
-            type="button"
-            className="topbar__button"
-            onClick={toggleAround}
-            // Без категории радиус не посчитать: «конкуренты» без неё не определены (проверяет и API)
-            disabled={!citySlug || !baseCategory}
-            aria-pressed={aroundOpen}
-            data-testid="open-around"
-            title="Радиус: клик по карте ставит точку, вокруг неё считаются конкуренты и инфраструктура"
-          >
-            <Crosshair size={16} aria-hidden="true" />
-            <span className="topbar__button-label">Радиус</span>
-          </button>
-
-          <button
-            type="button"
-            className="topbar__button"
-            onClick={() => setProfileOpen(true)}
-            disabled={!citySlug}
-            data-testid="open-profile"
-            title="Профиль города: сводка по данным"
-          >
-            <BarChart3 size={16} aria-hidden="true" />
-            <span className="topbar__button-label">Профиль города</span>
-          </button>
-
           <button
             type="button"
             className="topbar__button"
@@ -595,6 +607,71 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </span>
         )}
       </header>
+
+      {/* Панель сцены: вкладки и то, чем управляет текущая вкладка (ADR 0016) */}
+      <div className="scene-bar">
+        <TabNav active={tab} onChange={handleTabChange} />
+
+        {tab === "infrastructure" && (
+          <label className="scene-bar__control">
+            <span className="scene-bar__label">Показатель</span>
+            <select
+              aria-label="Показатель карты"
+              // До первого выбора показываем тот слой, которым карта уже покрашена: селект и карта
+              // должны говорить об одном
+              value={infraSlug ?? baseRef?.slug ?? ""}
+              onChange={(event) => setInfraSlug(event.target.value)}
+              data-testid="infra-layer"
+            >
+              {infraLayers.map((layer) => (
+                <option key={layer.slug} value={layer.slug}>
+                  {layer.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {/* Категорию выбирают в «Конкурентах» и в «Инструментах»: радиус считает конкурентов */}
+        {tab !== "infrastructure" && tab !== "city" && visibleCategories.length > 0 && (
+          <>
+            <label className="scene-bar__control scene-bar__control--select">
+              <span className="scene-bar__label">Категория</span>
+              <select
+                aria-label="Категория"
+                value={competitorCategory ?? ""}
+                onChange={(event) => selectCategory(event.target.value)}
+              >
+                {visibleCategories.map((item) => (
+                  <option key={item.slug} value={item.slug}>
+                    {item.name}
+                    {item.poi_count === 0 ? " — нет данных" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* На мобильном категорию выбирают чипами: селект скрыт стилями, чипы — наоборот */}
+            <div className="chips" role="group" aria-label="Категории">
+              {visibleCategories.map((item) => (
+                <button
+                  key={item.slug}
+                  type="button"
+                  className={`chip${item.slug === competitorCategory ? " chip--active" : ""}`}
+                  aria-pressed={item.slug === competitorCategory}
+                  data-testid={`chip-${item.slug}`}
+                  onClick={() => selectCategory(item.slug)}
+                >
+                  {item.name}
+                  {item.poi_count === 0 ? " — нет данных" : ""}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === "city" && <span className="scene-bar__note">Сводка по данным города</span>}
+      </div>
 
       <div className="map">
         {city ? (
@@ -622,7 +699,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <div className="map__placeholder" />
         )}
 
-        {baseLayer && (
+        {baseLayer && tab !== "city" && (
           <LayerPanel
             layers={layers}
             base={baseLayer}
@@ -633,7 +710,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           />
         )}
 
-        {baseLayer && (
+        {baseLayer && tab !== "city" && (
           <Legend
             layer={baseColumnData ? layerLegend(baseColumnData) : null}
             res={res}
@@ -699,7 +776,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </div>
         )}
 
-        {citySlug && selectedCell && (
+        {/* Карточка зоны: в «Конкурентах» — список организаций, в «Инфраструктуре» — числа слоёв.
+            В «Инструментах» и «Городе» клик по карте значит другое, поэтому карточки там нет */}
+        {citySlug && selectedCell && (tab === "competitors" || tab === "infrastructure") && (
           <PoiPanel
             city={citySlug}
             category={baseCategory}
@@ -713,15 +792,16 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           />
         )}
 
-        {profileOpen && citySlug && (
+        {tab === "city" && citySlug && (
           <CityProfile
             city={citySlug}
             cityName={city?.name}
-            onClose={() => setProfileOpen(false)}
+            // Закрытие сводки — это переход на основную вкладку: сцена не «пустеет»
+            onClose={() => handleTabChange(DEFAULT_TAB)}
           />
         )}
 
-        {compareOpen && citySlug && (
+        {tab === "tools" && compareOpen && citySlug && (
           <ComparePanel
             city={citySlug}
             cells={compareRefs}
@@ -733,7 +813,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           />
         )}
 
-        {aroundOpen && citySlug && baseCategory && aroundPoint && (
+        {tab === "tools" && aroundOpen && citySlug && baseCategory && aroundPoint && (
           <AroundPanel
             city={citySlug}
             point={aroundPoint}
@@ -748,9 +828,33 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           />
         )}
 
-        {aroundOpen && !aroundPoint && (
+        {tab === "tools" && aroundOpen && !aroundPoint && (
           <div className="around-hint" role="status" data-testid="around-hint">
             Кликните по карте — поставлю точку и посчитаю, что попадает в {radiusM} м вокруг неё
+          </div>
+        )}
+
+        {tab === "tools" && !aroundOpen && !compareOpen && (
+          <div className="tools__menu" data-testid="tools-menu">
+            <p className="tools__title">Инструменты анализа</p>
+            <button
+              type="button"
+              className="tools__button"
+              data-testid="tool-radius"
+              onClick={() => openTool("radius")}
+            >
+              Радиус вокруг точки
+              <span>Сколько конкурентов и инфраструктуры в 500 м от адреса</span>
+            </button>
+            <button
+              type="button"
+              className="tools__button"
+              data-testid="tool-compare"
+              onClick={() => openTool("compare")}
+            >
+              Сравнение зон
+              <span>Две–пять зон рядом: показатели слоёв и медиана города</span>
+            </button>
           </div>
         )}
 
