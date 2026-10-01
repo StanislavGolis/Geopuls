@@ -117,17 +117,16 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof LayerPanel>>
 }
 
 describe("LayerPanel", () => {
-  it("показывает основу карты как факт: переключателя базового слоя нет", () => {
+  it("не показывает основу карты отдельным блоком: её называют панель сцены и легенда", () => {
     renderPanel();
 
     // Смена основы меняла бы главный ответ приложения, поэтому такой возможности в интерфейсе нет
     expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.queryByTestId("base-population")).toBeNull();
 
-    const base = within(screen.getByTestId("layer-base"));
-
-    expect(base.getByText("Конкуренты (объекты по категориям) · Кофейни и кафе")).toBeTruthy();
-    expect(base.getByText(/всегда включён/)).toBeTruthy();
+    // Блок «Основа карты» убран: он повторял селект вкладки и название слоя в легенде
+    expect(screen.queryByTestId("layer-base")).toBeNull();
+    expect(screen.queryByText(/Основа карты/)).toBeNull();
   });
 
   it("не предлагает основу как дополнительный слой: она уже на карте", () => {
@@ -169,20 +168,22 @@ describe("LayerPanel", () => {
     expect(screen.getAllByText(/чел\/км²/).length).toBeGreaterThan(0);
   });
 
-  it("объясняет, что слои дают числа в карточке выбранной ячейки", () => {
+  it("объясняет, что слои дают числа в карточке зоны, а «на карте» — объекты", () => {
     renderPanel();
 
-    expect(screen.getByText(/карточке выбранной ячейки/)).toBeTruthy();
+    expect(screen.getByText(/Числа слоя — в карточке зоны/)).toBeTruthy();
+    expect(screen.getByText(/«На карте» — объекты слоя/)).toBeTruthy();
   });
 
-  it("показывает покрытие и источник каждого включённого слоя", () => {
+  it("показывает покрытие слоя и называет источник данных одной строкой", () => {
     renderPanel({ active: [{ slug: "population", category: null }] });
 
     const sources = within(screen.getByTestId("layer-sources"));
 
     expect(sources.getByText("Население")).toBeTruthy();
     expect(sources.getByText("собрано по 1200 из 1507 ячеек")).toBeTruthy();
-    expect(sources.getAllByText("© OpenStreetMap contributors").length).toBeGreaterThan(0);
+    // Атрибуция — общей строкой: построчно она дублировала подпись под картой
+    expect(sources.getAllByText(/Данные слоёв: © OpenStreetMap contributors \(ODbL\)/).length).toBe(1);
   });
 
   it("на мобильном свёрнута в кнопку", () => {

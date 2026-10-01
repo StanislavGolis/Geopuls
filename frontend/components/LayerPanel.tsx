@@ -16,8 +16,6 @@ export type LayerPanelProps = {
   active: LayerRef[];
   /** Данные карты: из них берутся числа и предупреждения о покрытии. */
   grid: LayerGrid | null;
-  /** Название выбранной категории — подпись основы карты. */
-  categoryName: string | null;
   /** Слой, объекты которого подсвечены на карте (`null` — подсветки нет). */
   objectsSlug?: string | null;
   /** Данные подсветки: по ним показываем, сколько объектов попало в границы вида. */
@@ -28,19 +26,24 @@ export type LayerPanelProps = {
 };
 
 /**
- * Панель слоёв: основа карты плюс набор дополнительных показателей.
+ * Панель слоёв: что показать рядом с основой карты.
  *
- * Почему без переключателя базового слоя: карта отвечает на один вопрос — где выбранная категория
- * есть, а где её нет, и этот ответ не должен зависеть от того, что пользователь случайно переключил
- * основу. Дополнительные слои не рисуются на карте (пять заливок друг поверх друга нечитаемы), они
- * дают числа в карточке ячейки — по выбранному гексу.
+ * Чего здесь нет и почему:
+ * - **основы карты.** Она очевидна и видна дважды: в панели сцены (категория конкурентов или показатель
+ *   слоя) и в легенде на карте. Вкладка «Конкуренты» всегда красит карту организациями выбранной
+ *   категории, вкладка «Инфраструктура» — объектами выбранного слоя; отдельный блок об этом только
+ *   занимал место и повторял уже сказанное.
+ * - **переключателя основы**: смена основы меняла бы главный ответ приложения.
+ *
+ * Что осталось: выбор дополнительных слоёв. У каждого слоя два независимых действия — «числа в карточке
+ * зоны» (чекбокс) и «объекты на карте» (переключатель, один слой за раз: пять контуров поверх заливки
+ * нечитаемы, план §6).
  */
 export default function LayerPanel({
   layers,
   base,
   active,
   grid,
-  categoryName,
   objectsSlug = null,
   objectsData = null,
   onToggle,
@@ -69,19 +72,12 @@ export default function LayerPanel({
       </button>
 
       <div className="layers__body">
-        <div className="layers__base" data-testid="layer-base">
-          <span className="layers__title">Основа карты</span>
-          <span className="layers__base-name">
-            {base ? base.name : "—"}
-            {categoryName ? ` · ${categoryName}` : ""}
-          </span>
-          <span className="layers__note">
-            Плотность объектов по категории — главный ответ сервиса, слой всегда включён.
-          </span>
-        </div>
-
         <fieldset className="layers__group">
-          <legend className="layers__title">Дополнительно в ячейке</legend>
+          <legend className="layers__title">Слои</legend>
+          <p className="layers__note">
+            Числа слоя — в карточке зоны. «На карте» — объекты слоя, по одному.
+          </p>
+
           {extraLayers.map((layer) => {
             const isOn = active.some((ref) => ref.slug === layer.slug);
             const column = columns.get(layer.slug);
@@ -131,35 +127,28 @@ export default function LayerPanel({
               </div>
             );
           })}
-          <span className="layers__note">Значения появятся в карточке выбранной ячейки.</span>
         </fieldset>
 
         <div className="layers__sources" data-testid="layer-sources">
           {active.map((ref) => {
             const meta = layers.find((item) => item.slug === ref.slug);
             const column = columns.get(ref.slug);
-            if (!meta) return null;
+            // Предупреждение о покрытии: «нет данных» — это не ноль, и об этом нужно сказать рядом
+            if (!meta || !column || !isPartiallyCovered(column, cellCount)) return null;
 
             return (
               <p className="layers__source" key={serializeLayerRef(ref)}>
                 <span className="layers__source-name">{meta.name}</span>
-                {column && (
-                  <span className="layers__source-meta">
-                    {metricLabel(column.metric_kind)}
-                    {column.unit ? `, ${column.unit}` : ""}
-                  </span>
-                )}
-                {column && isPartiallyCovered(column, cellCount) && (
-                  <span className="layers__warning">
-                    собрано по {column.covered_count} из {cellCount} ячеек
-                  </span>
-                )}
-                {meta.source?.attribution_text && (
-                  <span className="layers__attribution">{meta.source.attribution_text}</span>
-                )}
+                <span className="layers__warning">
+                  собрано по {column.covered_count} из {cellCount} ячеек
+                </span>
               </p>
             );
           })}
+          {/* Атрибуция слоёв — одна строка на всех: построчно она дублировала общую строку под картой */}
+          <p className="layers__source">
+            <span className="layers__attribution">Данные слоёв: © OpenStreetMap contributors (ODbL)</span>
+          </p>
         </div>
       </div>
     </section>

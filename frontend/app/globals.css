@@ -714,18 +714,6 @@ button:disabled {
 }
 
 /* Основа карты: она одна и не переключается — это главный ответ приложения */
-.layers__base {
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.layers__base-name {
-  display: block;
-  margin: 2px 0 4px;
-  color: var(--text-primary);
-}
-
 .layers__group {
   margin: 0 0 12px;
   padding: 0;
@@ -793,7 +781,6 @@ button:disabled {
   color: var(--text-primary);
 }
 
-.layers__source-meta,
 .layers__attribution {
   display: block;
   color: var(--text-muted);

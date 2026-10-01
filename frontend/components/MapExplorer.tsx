@@ -876,7 +876,6 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             base={baseLayer}
             active={infoRefs}
             grid={grid}
-            categoryName={baseCategory ? (categoryNames[baseCategory] ?? baseCategory) : null}
             objectsSlug={objectsSlug}
             objectsData={objectsData}
             onToggle={toggleInfoLayer}

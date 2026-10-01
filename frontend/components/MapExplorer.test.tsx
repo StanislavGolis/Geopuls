@@ -709,7 +709,9 @@ describe("MapExplorer", () => {
     // В «Конкурентах» выбора основы нет: он живёт во вкладке «Инфраструктура» (ADR 0016)
     expect(screen.queryByTestId("base-population")).toBeNull();
     expect(screen.queryByTestId("infra-layer")).toBeNull();
-    expect(screen.getByTestId("layer-base")).toBeTruthy();
+    // Основу не рисуют ни блоком, ни строкой в списке слоёв: её называет вкладка «Конкуренты»
+    expect(screen.queryByTestId("layer-base")).toBeNull();
+    expect(screen.queryByTestId("layer-competitors")).toBeNull();
     expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
       expect.objectContaining({ base: "competitors:cafe" }),
     );

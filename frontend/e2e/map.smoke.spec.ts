@@ -616,7 +616,7 @@ test("тепловой слой не скрывает подложку: зали
   expect(empties).toBeLessThan(filled);
 });
 
-test("панель слоёв показывает основу карты, а слои попадают в ссылку", async ({ page }) => {
+test("панель слоёв не дублирует основу карты, а слои попадают в ссылку", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
   await waitForStyle(page);
@@ -624,10 +624,12 @@ test("панель слоёв показывает основу карты, а �
     timeout: 30_000,
   });
 
-  // Панель строится из реестра слоёв: основа карты одна и не переключается
+  // Панель строится из реестра слоёв: основы карты в ней нет — её называет вкладка и легенда
   const panel = page.getByLabel("Слои карты");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTestId("layer-base")).toContainText("Конкуренты");
+  await expect(panel.getByTestId("layer-base")).toHaveCount(0);
+  await expect(panel.getByTestId("layer-competitors")).toHaveCount(0);
+  await expect(panel).not.toContainText("Основа карты");
   await expect(panel.getByTestId("layer-transport_stops")).not.toBeChecked();
 
   // Ссылку собирает сама карта: набор слоёв должен быть в адресе, иначе им нельзя поделиться
