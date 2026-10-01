@@ -49,8 +49,14 @@ API_GROUP="${API_GROUP:-1000}"
 
 if [ "$SKIP_DOWNLOAD" = "0" ]; then
     log "скачиваю выгрузку, если на сервере появилась новее: $PBF_URL"
-    # curl -z: файл не будет скачан заново, если серверная копия не новее
-    if ! curl -fsS -L -m 3600 -z "$PBF_PATH" -o "$PBF_PATH" "$PBF_URL"; then
+    # curl -z: файл не будет скачан заново, если серверная копия не новее.
+    # `-A` обязателен: без User-Agent Geofabrik возвращает 301 на адрес со слэшем на конце, и curl
+    # уходит в бесконечный цикл редиректов («Maximum (50) redirects followed»). С обычным UA — 200.
+    # Проверено 01.10.2026: без UA плановое обновление молча падало на скачивании.
+    # `--max-redirs 5` — страховка: лучше упасть с понятной ошибкой, чем крутиться 50 раз.
+    if ! curl -fsS -L --max-redirs 5 -m 3600 \
+        -A "GEOPULS/1.0 (data refresh; +https://github.com/StanislavGolis/Geopuls)" \
+        -z "$PBF_PATH" -o "$PBF_PATH" "$PBF_URL"; then
         notify "не удалось скачать выгрузку OSM: $PBF_URL"
         exit 1
     fi
