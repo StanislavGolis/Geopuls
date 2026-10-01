@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LayerPanel from "./LayerPanel";
-import type { LayerGrid, LayerMeta } from "@/lib/api";
+import type { LayerGrid, LayerMeta, LayerObjectsResponse } from "@/lib/api";
 
 const OSM = {
   slug: "osm",
@@ -105,7 +105,10 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof LayerPanel>>
     active: [] as { slug: string; category: string | null }[],
     grid: GRID,
     categoryName: "Кофейни и кафе",
+    objectsSlug: null,
+    objectsData: null,
     onToggle: vi.fn(),
+    onToggleObjects: vi.fn(),
     ...overrides,
   };
 
@@ -192,5 +195,39 @@ describe("LayerPanel", () => {
     fireEvent.click(toggle);
 
     expect(document.querySelector(".layers")?.classList.contains("layers--expanded")).toBe(true);
+  });
+
+  it("переключатель «на карте» подсвечивает один слой и честно говорит, сколько объектов видно", () => {
+    const onToggleObjects = vi.fn();
+    renderPanel({
+      onToggleObjects,
+      objectsSlug: "transport",
+      objectsData: {
+        type: "LayerObjects",
+        features: [],
+        meta: {
+          layer: "transport",
+          layer_name: "Транспорт",
+          bbox: "84.9,56.4,85.0,56.5",
+          limit: 2000,
+          total: 2500,
+          returned: 2000,
+          truncated: true,
+          data_version: "2026-09-27",
+          updated_at: null,
+        },
+        sources: [],
+      } as LayerObjectsResponse,
+    });
+
+    // Активный слой помечен, а «показаны не все» видно прямо в панели
+    expect(screen.getByTestId("layer-map-transport").getAttribute("aria-pressed")).toBe("true");
+    const note = screen.getByTestId("layer-objects-note");
+    expect(note.textContent).toContain("2000");
+    expect(note.textContent).toContain("из 2500");
+
+    // Переключение на другой слой — один слой за раз (план §6)
+    fireEvent.click(screen.getByTestId("layer-map-pedestrian"));
+    expect(onToggleObjects).toHaveBeenCalledWith("pedestrian");
   });
 });

@@ -886,6 +886,40 @@ test("меню «Экспорт» открывает отчёт отдельно
   await report.close();
 });
 
+test("объекты слоя подсвечиваются на карте и живут в ссылке", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Переключатель в панели слоёв: подсветка объектов, а не числа в карточке
+  await page.getByTestId("layer-map-parking").click();
+  await expect(page.getByTestId("layer-map-parking")).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(/objects=parking/);
+
+  // Объекты действительно приезжают на карту: источник слоя объектов не пуст
+  await expect
+    .poll(async () =>
+      page.evaluate(() => window.__geopulsMap?.querySourceFeatures("layer-objects").length ?? 0),
+    )
+    .toBeGreaterThan(0);
+
+  // Панель честно сообщает, сколько объектов видно в границах вида
+  await expect(page.getByTestId("layer-objects-note")).toBeVisible();
+
+  // Ссылка с подсветкой открывает ту же сцену — и это вкладка «Инфраструктура»
+  await page.goto("/?city=tomsk&category=cafe&objects=parking&debug=1");
+  await waitForStyle(page);
+  await expect(page.getByTestId("layer-map-parking")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("tab-infrastructure")).toHaveAttribute("aria-selected", "true");
+
+  // Повторный клик снимает подсветку: один слой за раз (план §6)
+  await page.getByTestId("layer-map-parking").click();
+  await expect(page).not.toHaveURL(/objects=/);
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);

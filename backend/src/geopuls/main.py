@@ -18,6 +18,7 @@ from geopuls.api.health import router as health_router
 from geopuls.api.layers import router as layers_router
 from geopuls.api.map import router as map_router
 from geopuls.api.meta import router as meta_router
+from geopuls.api.objects import router as objects_router
 from geopuls.api.pois import router as pois_router
 from geopuls.api.problems import register_problem_handlers
 from geopuls.config import Settings, get_settings
@@ -76,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cells_router)
     app.include_router(layers_router)
     app.include_router(map_router)
+    app.include_router(objects_router)
     app.include_router(pois_router)
 
     @app.get("/", include_in_schema=False)

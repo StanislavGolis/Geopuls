@@ -3,7 +3,7 @@
 import { Layers } from "lucide-react";
 import { useState } from "react";
 
-import type { LayerGrid, LayerMeta } from "@/lib/api";
+import type { LayerGrid, LayerMeta, LayerObjectsResponse } from "@/lib/api";
 import { isPartiallyCovered, metricLabel, serializeLayerRef, type LayerRef } from "@/lib/layers";
 import { stopPanelClick } from "@/lib/panels";
 
@@ -18,7 +18,13 @@ export type LayerPanelProps = {
   grid: LayerGrid | null;
   /** Название выбранной категории — подпись основы карты. */
   categoryName: string | null;
+  /** Слой, объекты которого подсвечены на карте (`null` — подсветки нет). */
+  objectsSlug?: string | null;
+  /** Данные подсветки: по ним показываем, сколько объектов попало в границы вида. */
+  objectsData?: LayerObjectsResponse | null;
   onToggle: (ref: LayerRef) => void;
+  /** Включить подсветку объектов слоя; повторный вызов с тем же слоем снимает её. */
+  onToggleObjects: (slug: string) => void;
 };
 
 /**
@@ -35,7 +41,10 @@ export default function LayerPanel({
   active,
   grid,
   categoryName,
+  objectsSlug = null,
+  objectsData = null,
   onToggle,
+  onToggleObjects,
 }: LayerPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const extraLayers = layers.filter((layer) => layer.slug !== base?.slug);
@@ -90,11 +99,33 @@ export default function LayerPanel({
                   />
                   <span>{layer.name}</span>
                 </label>
+                {/*
+                  Подсветка объектов: один слой за раз, поэтому это не второй чекбокс, а переключатель —
+                  два контура поверх заливки уже спорят за внимание (план §6).
+                */}
+                <button
+                  type="button"
+                  className={`layers__map${objectsSlug === layer.slug ? " layers__map--active" : ""}`}
+                  aria-pressed={objectsSlug === layer.slug}
+                  data-testid={`layer-map-${layer.slug}`}
+                  title="Показать объекты слоя на карте (один слой за раз)"
+                  onClick={() => onToggleObjects(layer.slug)}
+                >
+                  на карте
+                </button>
                 {isOn && (
                   <span className="layers__note">
                     {metricLabel(layer.metric_kind)}
                     {layer.unit ? `, ${layer.unit}` : ""}
                     {column ? "" : " — данные ещё собираются"}
+                  </span>
+                )}
+                {objectsSlug === layer.slug && objectsData && (
+                  <span className="layers__note" data-testid="layer-objects-note">
+                    объектов в границах вида: {objectsData.meta.returned}
+                    {objectsData.meta.truncated
+                      ? ` из ${objectsData.meta.total} — показаны не все, приблизьте карту`
+                      : ""}
                   </span>
                 )}
               </div>

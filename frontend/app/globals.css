@@ -1409,6 +1409,28 @@ button:disabled {
   color: var(--text-muted);
 }
 
+/* Переключатель подсветки объектов слоя: один слой за раз (план §6) */
+.layers__map {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.layers__map:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.layers__map--active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-subtle);
+}
+
 /* Выбор показателя карты во вкладке «Инфраструктура» живёт в панели сцены (.scene-bar) */
 
 /* ── Сравнение зон: «зона против зоны» (план развития, этап 2) ─────────────── */

@@ -218,6 +218,47 @@ class AroundResponse(BaseModel):
     sources: list[LayerSourceOut] = Field(default_factory=list)
 
 
+class LayerObjectProperties(BaseModel):
+    """Что известно об объекте слоя: по этим данным строится подпись точки на карте."""
+
+    #: Ключ OSM в виде `node/12345` — по нему открывается объект на osm.org
+    osm: str
+    name: str | None = None
+    #: Вариант внутри слоя (категория), из которой пришёл объект
+    category: str
+    #: Тип геометрии из PostGIS: Point, LineString, Polygon (базовый тип, без Multi)
+    geom_type: str
+
+
+class LayerObjectFeature(BaseModel):
+    """GeoJSON-объект слоя: геометрия приходит как есть, свойства — по контракту."""
+
+    type: Literal["Feature"] = "Feature"
+    #: Геометрия GeoJSON целиком: точки, линии и полигоны в одном ответе (см. `api/objects.py`)
+    geometry: dict[str, Any]
+    properties: LayerObjectProperties
+
+
+class LayerObjectsMeta(BaseModel):
+    layer: str
+    layer_name: str
+    bbox: str
+    limit: int
+    #: Всего объектов слоя в этом bbox — чтобы честно сказать «показано N из M»
+    total: int
+    returned: int
+    truncated: bool
+    data_version: str | None = None
+    updated_at: datetime | None = None
+
+
+class LayerObjectsResponse(BaseModel):
+    type: Literal["LayerObjects"] = "LayerObjects"
+    features: list[LayerObjectFeature] = Field(default_factory=list)
+    meta: LayerObjectsMeta
+    sources: list[LayerSourceOut] = Field(default_factory=list)
+
+
 class CityProfileOut(BaseModel):
     """Профиль города: сводка, по которой видно, что это за город и насколько полны данные.
 

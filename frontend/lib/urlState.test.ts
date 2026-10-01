@@ -101,6 +101,7 @@ describe("buildSearch", () => {
       compare: null,
       around: { lat: 56.4847, lon: 84.9482 },
       radius: 1000,
+      objects: null,
       res: 9 as const,
       zoom: 13,
       center: { lat: 56.473, lon: 85.024 },
@@ -145,6 +146,14 @@ describe("buildSearch", () => {
 
   it("радиус без точки игнорируется: непонятно, вокруг чего считать", () => {
     expect(parseUrlState("?city=tomsk&radius=1000").radius).toBeNull();
+  });
+
+  it("подсветка объектов слоя — состояние ссылки: один слой за раз (план §6)", () => {
+    expect(buildSearch({ city: "tomsk", objects: "parking" })).toBe("city=tomsk&objects=parking");
+    expect(parseUrlState("?city=tomsk&objects=parking").objects).toBe("parking");
+    // Ссылка с подсветкой открывает вкладку «Инфраструктура»: это про слои, а не про конкурентов
+    expect(parseUrlState("?city=tomsk&objects=parking").tab).toBe("infrastructure");
+    expect(parseUrlState("?city=tomsk").objects).toBeNull();
   });
 
   it("мусор вместо координат и радиуса не роняет карту", () => {

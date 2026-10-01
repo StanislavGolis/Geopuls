@@ -20,9 +20,11 @@ import {
   type CityMeta,
   type LayerGrid,
   type LayerMeta,
+  type LayerObjectsResponse,
   fetchCategories,
   fetchCities,
   fetchLayerGrid,
+  fetchLayerObjects,
   fetchLayers,
 } from "@/lib/api";
 import { DEFAULT_RADIUS_M } from "@/lib/around";
@@ -119,9 +121,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [offline, setOffline] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [selectedCell, setSelectedCell] = useState<string | null>(initial.cell);
-  const [view, setView] = useState<{ lat: number; lon: number; zoom: number } | null>(
+  const [view, setView] = useState<{ lat: number; lon: number; zoom: number; bbox: string } | null>(
     initial.zoom !== null && initial.center
-      ? { lat: initial.center.lat, lon: initial.center.lon, zoom: initial.zoom }
+      ? { lat: initial.center.lat, lon: initial.center.lon, zoom: initial.zoom, bbox: "" }
       : null,
   );
   const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
@@ -142,6 +144,13 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [widgetsOpen, setWidgetsOpen] = useState(true);
   /** Класс плотности, подсвеченный на карте контуром (`null` — не выбран). */
   const [classIndex, setClassIndex] = useState<number | null>(null);
+  /**
+   * Слой, объекты которого подсвечены на карте (план §6). Один слой за раз: переключатель в панели
+   * слоёв, как у радио — пять контуров друг поверх друга нечитаемы.
+   */
+  const [objectsSlug, setObjectsSlug] = useState<string | null>(initial.objects);
+  /** Объекты этого слоя в границах вида карты: грузятся отдельным запросом по bbox. */
+  const [objectsData, setObjectsData] = useState<LayerObjectsResponse | null>(null);
 
   const mapRef = useRef<MapViewHandle | null>(null);
   /** Просьба подвести карту к выбранной зоне: ставится виджетом, снимается эффектом подведения. */
@@ -314,6 +323,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       compare: compareRefs.join(",") || null,
       around: aroundPoint,
       radius: aroundPoint ? radiusM : null,
+      objects: objectsSlug,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
@@ -329,6 +339,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     compareRefs,
     aroundPoint,
     radiusM,
+    objectsSlug,
     res,
     view,
   ]);
@@ -400,6 +411,56 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   /** Контуры зон одним списком: сравнение и класс плотности рисуются одним слоем (см. MapView). */
   const outlineCells = useMemo(() => [...compareRefs, ...classCells], [compareRefs, classCells]);
 
+  /**
+   * Объекты подсвеченного слоя — грузим по границам вида.
+   *
+   * Границы обязательны (см. `api/objects.py`): в типичном виде карты это десятки килобайт, а слой
+   * целиком — мегабайты. При движении карты запрос повторяем: `moveend` — это завершённое действие, а не
+   * поток событий, поэтому отдельный debounce не нужен.
+   */
+  useEffect(() => {
+    if (!citySlug || !objectsSlug || !view?.bbox) {
+      setObjectsData(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetchLayerObjects({
+          city: citySlug,
+          layer: objectsSlug,
+          bbox: view.bbox,
+        });
+        if (!cancelled) setObjectsData(response);
+      } catch {
+        // Объекты слоя — подсказка «где именно», а не данные: о проблеме сообщит карточка ячейки
+        if (!cancelled) setObjectsData(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [citySlug, objectsSlug, view?.bbox]);
+
+  /**
+   * Подсветка объектов слоя: один слой за раз, повторный выбор снимает подсветку.
+   *
+   * Так же, как с инструментами: два контура поверх заливки уже спорят за внимание, а пять превращают
+   * карту в кашу (план §6).
+   */
+  const toggleObjects = useCallback((slug: string) => {
+    setObjectsSlug((current) => (current === slug ? null : slug));
+    setSelectedCell(null);
+  }, []);
+
+  /** Цвет объектов — цвет слоя: слой и его объекты должны читаться как одно. */
+  const objectsColor = useMemo(
+    () => layers.find((item) => item.slug === objectsSlug)?.color ?? "#334155",
+    [layers, objectsSlug],
+  );
+
   // Смена слоя или города меняет шкалу классов: подсветка прежнего класса теряет смысл
   useEffect(() => {
     setClassIndex(null);
@@ -467,13 +528,20 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     setRes((current) => (current === next ? current : next));
   }, []);
 
-  const handleViewChange = useCallback((next: { lat: number; lon: number; zoom: number }) => {
-    setView((current) =>
-      current && current.lat === next.lat && current.lon === next.lon && current.zoom === next.zoom
-        ? current
-        : next,
-    );
-  }, []);
+  const handleViewChange = useCallback(
+    (next: { lat: number; lon: number; zoom: number; bbox: string }) => {
+      setView((current) =>
+        current &&
+        current.lat === next.lat &&
+        current.lon === next.lon &&
+        current.zoom === next.zoom &&
+        current.bbox === next.bbox
+          ? current
+          : next,
+      );
+    },
+    [],
+  );
 
   /**
    * Клик по гексу: в режиме сравнения он набирает зоны, иначе открывает карточку объектов.
@@ -788,6 +856,9 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             around={aroundOpen && aroundPoint ? { ...aroundPoint, radiusM } : null}
             // Клик ставит точку только в режиме радиуса: в остальное время он открывает карточку
             onPointSelect={aroundOpen ? handlePointSelect : undefined}
+            // Объекты подсвеченного слоя: один слой за раз, своей геометрией (план §6)
+            objects={objectsData}
+            objectsColor={objectsColor}
             // Точки в ячейке — по той же категории, что и список объектов в панели
             category={baseCategory}
             onCellSelect={handleCellSelect}
@@ -806,7 +877,10 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             active={infoRefs}
             grid={grid}
             categoryName={baseCategory ? (categoryNames[baseCategory] ?? baseCategory) : null}
+            objectsSlug={objectsSlug}
+            objectsData={objectsData}
             onToggle={toggleInfoLayer}
+            onToggleObjects={toggleObjects}
           />
         )}
 

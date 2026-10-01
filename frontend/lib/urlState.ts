@@ -31,6 +31,13 @@ export type UrlState = {
   around: { lat: number; lon: number } | null;
   /** Радиус в метрах: значим только вместе с точкой. */
   radius: number | null;
+  /**
+   * Слой, объекты которого подсвечены на карте (`objects=<slug>`).
+   *
+   * Один слой за раз: пять заливок и контуров друг поверх друга нечитаемы (план §6). Остальные
+   * включённые слои продолжают давать числа в карточке ячейки.
+   */
+  objects: string | null;
   res: 8 | 9 | null;
   zoom: number | null;
   center: { lat: number; lon: number } | null;
@@ -50,6 +57,7 @@ export const EMPTY_URL_STATE: UrlState = {
   tab: null,
   around: null,
   radius: null,
+  objects: null,
   res: null,
   zoom: null,
   center: null,
@@ -78,10 +86,13 @@ export function inferTab(state: {
   base?: string | null;
   compare?: string | null;
   around?: { lat: number; lon: number } | null;
+  objects?: string | null;
   profile?: boolean;
 }): TabId {
   if (state.profile) return "city";
   if (state.compare || state.around) return "tools";
+  // Подсветка объектов слоя — это про инфраструктуру, даже если базовым слоем остались конкуренты
+  if (state.objects) return "infrastructure";
   const baseSlug = parseLayerRef(state.base ?? null)?.slug ?? null;
   if (baseSlug && baseSlug !== COMPETITORS_SLUG) return "infrastructure";
   return DEFAULT_TAB;
@@ -190,11 +201,13 @@ export function parseUrlState(source: string | Record<string, string | string[] 
         base,
         compare: compare.length > 0 ? compare.join(",") : null,
         around,
+        objects: parseString(params.get("objects")),
         // До вкладок профиль был отдельным экраном: ссылки с `profile=1` открывают вкладку «Город»
         profile: params.get("profile") === "1",
       }),
     around,
     radius,
+    objects: parseString(params.get("objects")),
     res,
     zoom,
     // Центр имеет смысл только вместе с зумом: иначе карта остаётся привязана к границам города
@@ -235,6 +248,8 @@ export function buildSearch(state: Partial<UrlState>): string {
     push("around", `${state.around.lat.toFixed(5)},${state.around.lon.toFixed(5)}`);
     if (state.radius && state.radius !== DEFAULT_RADIUS_M) push("radius", String(state.radius));
   }
+  // Подсветка объектов слоя: один слой за раз (план §6)
+  if (state.objects) push("objects", String(state.objects));
   if (typeof state.res === "number") push("res", String(state.res));
   if (typeof state.zoom === "number" && Number.isFinite(state.zoom)) {
     push("zoom", state.zoom.toFixed(2));

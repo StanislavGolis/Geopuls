@@ -426,6 +426,53 @@ export function fetchAround(query: AroundQuery): Promise<AroundResponse> {
   });
 }
 
+/** Объект слоя геометрией: точка, линия или полигон — «проверить слой глазами» (план §6). */
+export type LayerObjectFeature = {
+  type: "Feature";
+  geometry: { type: string; coordinates: unknown };
+  properties: {
+    osm: string;
+    name: string | null;
+    category: string;
+    geom_type: string;
+  };
+};
+
+export type LayerObjectsResponse = {
+  type: "LayerObjects";
+  features: LayerObjectFeature[];
+  meta: {
+    layer: string;
+    layer_name: string;
+    bbox: string;
+    limit: number;
+    total: number;
+    returned: number;
+    /** Показано меньше, чем есть в границах вида: интерфейс обязан об этом сказать. */
+    truncated: boolean;
+    data_version: string | null;
+    updated_at: string | null;
+  };
+  sources: LayerSource[];
+};
+
+/**
+ * Объекты слоя в границах вида карты.
+ *
+ * Границы обязательны: слой целиком — это мегабайты JSON (жильё 2.3 МБ, пешеходные пути 0.9 МБ), а в
+ * типичном виде карты — десятки килобайт. Упрощение контуров делает бэкенд.
+ */
+export function fetchLayerObjects(query: {
+  city: string;
+  layer: string;
+  bbox: string;
+}): Promise<LayerObjectsResponse> {
+  return requestJson<LayerObjectsResponse>(
+    `/api/v1/layers/${encodeURIComponent(query.layer)}/objects`,
+    { city: query.city, bbox: query.bbox },
+  );
+}
+
 export function fetchCells(query: CellsQuery): Promise<CellsResponse> {
   return requestJson<CellsResponse>("/api/v1/cells", {
     city: query.city,

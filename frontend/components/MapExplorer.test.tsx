@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,39 +20,53 @@ vi.mock("./MapView", () => ({
     grid,
     onCellSelect,
     onPointSelect,
+    onViewChange,
     selectedCell,
     category,
   }: {
     grid: LayerGrid | null;
     onCellSelect: (h3: string) => void;
     onPointSelect?: (point: { lat: number; lon: number }) => void;
+    onViewChange?: (view: { lat: number; lon: number; zoom: number; bbox: string }) => void;
     selectedCell: string | null;
     category?: string | null;
-  }) => (
-    <div data-testid="map">
-      cells={grid?.cells.h3.length ?? 0}
-      <span data-testid="selected-cell">{selectedCell ?? ""}</span>
-      {/* Категория, которой карта фильтрует точки ячейки: должна совпадать со списком объектов */}
-      <span data-testid="map-category">{category ?? ""}</span>
-      <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
-        клик по ячейке
-      </button>
-      {/* Ячейка обзорного слоя: разрешение в состоянии и у ячейки может расходиться при смене по зуму */}
-      <button type="button" data-testid="click-cell-res8" onClick={() => onCellSelect("880b86a59dfffff")}>
-        клик по ячейке res 8
-      </button>
-      {/* Точку радиуса ставит карта: обработчик появляется только в режиме радиуса (ADR 0016) */}
-      {onPointSelect && (
-        <button
-          type="button"
-          data-testid="click-point"
-          onClick={() => onPointSelect({ lat: 56.4847, lon: 84.9482 })}
-        >
-          клик по карте в режиме радиуса
+  }) => {
+    // Настоящая карта сообщает границы вида после загрузки стиля — здесь то же самое, одним эффектом
+    useEffect(() => {
+      onViewChange?.({
+        lat: 56.47,
+        lon: 85.02,
+        zoom: 12,
+        bbox: "84.90,56.40,85.10,56.50",
+      });
+    }, [onViewChange]);
+
+    return (
+      <div data-testid="map">
+        cells={grid?.cells.h3.length ?? 0}
+        <span data-testid="selected-cell">{selectedCell ?? ""}</span>
+        {/* Категория, которой карта фильтрует точки ячейки: должна совпадать со списком объектов */}
+        <span data-testid="map-category">{category ?? ""}</span>
+        <button type="button" data-testid="click-cell" onClick={() => onCellSelect("890b80db643ffff")}>
+          клик по ячейке
         </button>
-      )}
-    </div>
-  ),
+        {/* Ячейка обзорного слоя: разрешение в состоянии и у ячейки может расходиться при смене по зуму */}
+        <button type="button" data-testid="click-cell-res8" onClick={() => onCellSelect("880b86a59dfffff")}>
+          клик по ячейке res 8
+        </button>
+        {/* Точку радиуса ставит карта: обработчик появляется только в режиме радиуса (ADR 0016) */}
+        {onPointSelect && (
+          <button
+            type="button"
+            data-testid="click-point"
+            onClick={() => onPointSelect({ lat: 56.4847, lon: 84.9482 })}
+          >
+            клик по карте в режиме радиуса
+          </button>
+        )}
+      </div>
+    );
+  },
 }));
 
 const apiMock = {
@@ -62,6 +77,7 @@ const apiMock = {
   fetchPois: vi.fn(),
   fetchCityProfile: vi.fn(),
   fetchCellProfile: vi.fn(),
+  fetchLayerObjects: vi.fn(),
 };
 
 vi.mock("@/lib/api", async () => {
@@ -75,6 +91,7 @@ vi.mock("@/lib/api", async () => {
     fetchPois: (query: unknown) => apiMock.fetchPois(query),
     fetchCityProfile: (slug: string) => apiMock.fetchCityProfile(slug),
     fetchCellProfile: (query: unknown) => apiMock.fetchCellProfile(query),
+    fetchLayerObjects: (query: unknown) => apiMock.fetchLayerObjects(query),
   };
 });
 
@@ -235,6 +252,22 @@ beforeEach(() => {
   apiMock.fetchCities.mockResolvedValue([CITY]);
   apiMock.fetchCategories.mockResolvedValue(CATEGORIES);
   apiMock.fetchLayers.mockResolvedValue({ layers: LAYERS, data_version: "2026-09-27" });
+  apiMock.fetchLayerObjects.mockResolvedValue({
+    type: "LayerObjects",
+    features: [],
+    meta: {
+      layer: "population",
+      layer_name: "Население",
+      bbox: "84.90,56.40,85.10,56.50",
+      limit: 2000,
+      total: 0,
+      returned: 0,
+      truncated: false,
+      data_version: "2026-09-27",
+      updated_at: null,
+    },
+    sources: [],
+  });
   apiMock.fetchLayerGrid.mockResolvedValue(GRID);
   apiMock.fetchPois.mockResolvedValue(POIS);
   apiMock.fetchCityProfile.mockResolvedValue(PROFILE);
@@ -590,6 +623,26 @@ describe("MapExplorer", () => {
 
     fireEvent.click(screen.getByTestId("tab-competitors"));
     expect(await screen.findByTestId("cell-widgets")).toBeTruthy();
+  });
+
+  it("подсветка объектов слоя: запрос по границам вида и состояние в ссылке", async () => {
+    render(<MapExplorer styleUrl="style.json" />);
+    await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("layer-map-population"));
+
+    // Запрос идёт по границам вида: слой целиком в браузер не тянем (план §6)
+    await waitFor(() =>
+      expect(apiMock.fetchLayerObjects).toHaveBeenCalledWith(
+        expect.objectContaining({ layer: "population", bbox: "84.90,56.40,85.10,56.50" }),
+      ),
+    );
+    // Ссылкой делятся: подсветка уезжает в адресную строку
+    await waitFor(() => expect(window.location.search).toContain("objects=population"));
+
+    // Повторный клик снимает подсветку: один слой за раз
+    fireEvent.click(screen.getByTestId("layer-map-population"));
+    await waitFor(() => expect(window.location.search).not.toContain("objects="));
   });
 
   it("вкладки хранят выбор пользователя: категория не сбрасывается при переходах", async () => {
