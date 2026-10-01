@@ -49,19 +49,32 @@ API_GROUP="${API_GROUP:-1000}"
 
 if [ "$SKIP_DOWNLOAD" = "0" ]; then
     log "скачиваю выгрузку: $PBF_URL"
-    # `-A` обязателен: без User-Agent Geofabrik возвращает 301 на адрес со слэшем на конце, и curl
-    # уходит в бесконечный цикл редиректов («Maximum (50) redirects followed»). С обычным UA — 200.
-    # `-z` (условный запрос по дате) убран: на этом прокси он тоже возвращает 404 — проверено 01.10.2026.
-    # Плановый прогон идёт раз в неделю, поэтому перекачать 550 МБ дешевле, чем угадывать дату.
-    # `--max-redirs 5` — страховка: лучше упасть с понятной ошибкой, чем крутиться 50 раз.
-    if ! curl -fsS -L --max-redirs 5 -m 3600 \
-        -A "GEOPULS/1.0 (data refresh; +https://github.com/StanislavGolis/Geopuls)" \
-        -o "$PBF_PATH.tmp" "$PBF_URL"; then
+    # Три вещи, найденные на проде 01.10.2026 (без них плановое обновление падало молча):
+    # 1. `-A` обязателен: без User-Agent Geofabrik отвечает 301 на адрес со слэшем на конце и curl
+    #    уходит в бесконечный цикл редиректов.
+    # 2. `-z` (условный запрос по дате) на этом прокси тоже даёт 404 — поэтому не используем.
+    # 3. Ответ нестабилен: один и тот же запрос то 200, то цикл 301 (2 из 5 попыток в проверке).
+    #    Поэтому скачивание повторяем, а не падаем с первой неудачи.
+    # Файл пишем во временный и подменяем только после успеха: оборванная загрузка не должна испортить
+    # рабочую выгрузку. `--max-redirs 5` — страховка от бесконечного цикла.
+    ATTEMPT=1
+    MAX_ATTEMPTS="${PBF_DOWNLOAD_ATTEMPTS:-3}"
+    rm -f "$PBF_PATH.tmp"
+    while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+        if curl -fsS -L --max-redirs 5 -m 3600 \
+            -A "GEOPULS/1.0 (data refresh; +https://github.com/StanislavGolis/Geopuls)" \
+            -o "$PBF_PATH.tmp" "$PBF_URL"; then
+            break
+        fi
+        log "попытка $ATTEMPT из $MAX_ATTEMPTS не удалась — повтор через 20 с"
         rm -f "$PBF_PATH.tmp"
-        notify "не удалось скачать выгрузку OSM: $PBF_URL"
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 20
+    done
+    if [ ! -s "$PBF_PATH.tmp" ]; then
+        notify "не удалось скачать выгрузку OSM за $MAX_ATTEMPTS попыток: $PBF_URL"
         exit 1
     fi
-    # Подменяем файл только после успешного скачивания: оборванная загрузка не должна испортить выгрузку
     mv -f "$PBF_PATH.tmp" "$PBF_PATH"
     log "файл на месте: $PBF_PATH ($(du -h "$PBF_PATH" | cut -f1), изменён $(date -Is -r "$PBF_PATH"))"
 fi
