@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from geopuls.categories import (
+    COMPETITOR_CATEGORIES,
     MVP_CATEGORIES,
     CategoryRule,
     has_address,
@@ -72,3 +73,64 @@ def test_as_osm_tags_is_json_ready() -> None:
     cafe = next(category for category in MVP_CATEGORIES if category.slug == "cafe")
 
     assert cafe.as_osm_tags() == [{"key": "amenity", "value": "cafe"}]
+
+
+def test_competitor_categories_are_unique_and_rules_do_not_overlap() -> None:
+    """Слаги уникальны, и ни одно правило второй волны не повторяет правило MVP или соседа."""
+    slugs = [category.slug for category in COMPETITOR_CATEGORIES]
+
+    assert len(slugs) == len(set(slugs))
+    assert len(COMPETITOR_CATEGORIES) == 18, "восемь категорий MVP и десять второй волны"
+
+    seen: set[tuple[tuple[str, str | None], ...]] = set()
+    for category in COMPETITOR_CATEGORIES:
+        for item in category.rules:
+            assert item.pairs not in seen, f"правило {item.pairs} повторяется у {category.slug}"
+            seen.add(item.pairs)
+
+
+def test_match_categories_covers_wave_two_tags() -> None:
+    assert match_categories({"amenity": "bank"}) == ("banks",)
+    assert match_categories({"amenity": "atm"}) == ("banks",)
+    assert match_categories({"amenity": "kindergarten"}) == ("education",)
+    assert match_categories({"shop": "car_repair"}) == ("auto",)
+    assert match_categories({"amenity": "car_wash"}) == ("auto",)
+    assert match_categories({"shop": "clothes"}) == ("clothes",)
+    assert match_categories({"amenity": "dentist"}) == ("medical",)
+    assert match_categories({"shop": "alcohol"}) == ("alcohol",)
+    assert match_categories({"shop": "hardware"}) == ("diy",)
+    assert match_categories({"tourism": "hostel"}) == ("hotels",)
+    assert match_categories({"amenity": "fuel"}) == ("fuel",)
+    assert match_categories({"shop": "florist"}) == ("flowers",)
+
+
+def test_medical_does_not_grab_any_healthcare_value() -> None:
+    """`healthcare=yes` и служебные значения — не конкуренты: правило задано списком, а не звёздочкой."""
+    assert match_categories({"healthcare": "yes"}) == ()
+    assert match_categories({"healthcare": "laboratory"}) == ()
+    assert match_categories({"healthcare": "clinic"}) == ("medical",)
+
+
+def test_city_infrastructure_stays_out_of_competitors() -> None:
+    """Правило отбора: скамейки, урны, площадки и светофоры — не конкуренты малому бизнесу."""
+    for tags in (
+        {"amenity": "bench"},
+        {"amenity": "waste_basket"},
+        {"leisure": "playground"},
+        {"leisure": "pitch"},
+        {"highway": "traffic_signals"},
+        {"amenity": "drinking_water"},
+    ):
+        assert match_categories(tags) == (), f"{tags} не должны попадать в категории конкурентов"
+
+
+def test_layer_topics_stay_out_of_competitors() -> None:
+    """Второе правило: то, что измеряется слоем, не дублируется категорией конкурентов (ADR 0013)."""
+    for tags in (
+        {"highway": "bus_stop"},
+        {"amenity": "parking", "parking": "surface"},
+        {"building": "apartments"},
+        {"landuse": "industrial"},
+        {"highway": "footway"},
+    ):
+        assert match_categories(tags) == (), f"{tags} измеряются слоем, а не категорией конкурентов"

@@ -50,7 +50,7 @@ def test_category_stats_shares() -> None:
 
 def make_report(stats: dict[str, CategoryStats]) -> CoverageReport:
     """Отчёт с синтетическими данными — для проверки сериализации."""
-    from geopuls.categories import MVP_CATEGORIES
+    from geopuls.categories import COMPETITOR_CATEGORIES
 
     return CoverageReport(
         city="Тест",
@@ -79,7 +79,7 @@ def make_report(stats: dict[str, CategoryStats]) -> CoverageReport:
                 "named_share": stats.get(category.slug, CategoryStats()).named_share,
                 "address_share": stats.get(category.slug, CategoryStats()).address_share,
             }
-            for category in MVP_CATEGORIES
+            for category in COMPETITOR_CATEGORIES
         },
         key_values={"amenity": {"cafe": 20, "bench": 3}},
     )
@@ -114,7 +114,7 @@ def test_report_markdown_has_tables_and_verdict() -> None:
 
 def test_build_report_from_scanner_like_object(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """build_report должен считаться от любого объекта с полями сканера."""
-    from geopuls.categories import EXPLORATION_KEYS, MVP_CATEGORIES
+    from geopuls.categories import COMPETITOR_CATEGORIES, EXPLORATION_KEYS
 
     pbf = tmp_path / "test.osm.pbf"
     pbf.write_bytes(b"not a real pbf")
@@ -123,7 +123,7 @@ def test_build_report_from_scanner_like_object(tmp_path) -> None:  # type: ignor
         def __init__(self) -> None:
             from collections import Counter as _Counter
 
-            self.stats = {category.slug: CategoryStats(total=3, nodes=3) for category in MVP_CATEGORIES}
+            self.stats = {category.slug: CategoryStats(total=3, nodes=3) for category in COMPETITOR_CATEGORIES}
             self.key_values = {"amenity": _Counter({"cafe": 3})}
             self.objects_with_poi_keys = 10
             self.objects_matched = 3

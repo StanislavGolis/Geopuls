@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from geopuls.categories import MVP_CATEGORIES, Category, CategoryRule, rule
+from geopuls.categories import COMPETITOR_CATEGORIES, Category, CategoryRule, rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,10 +238,10 @@ LAYERS: tuple[LayerDef, ...] = (
 
 LAYERS_BY_SLUG: dict[str, LayerDef] = {layer.slug: layer for layer in LAYERS}
 
-#: Все категории проекта: восемь категорий конкурентов и по одной на каждый слой Этапа 9.
-#: Импортёр и сид ходят сюда, а не в `MVP_CATEGORIES`: иначе новые слои остались бы без данных.
+#: Все категории проекта: категории конкурентов (MVP и вторая волна) и по одной на каждый слой Этапа 9.
+#: Импортёр и сид ходят сюда, а не в `MVP_CATEGORIES`: иначе новые категории и слои остались бы без данных.
 ALL_CATEGORIES: tuple[Category | LayerCategoryDef, ...] = (
-    *MVP_CATEGORIES,
+    *COMPETITOR_CATEGORIES,
     *(category for layer in LAYERS for category in layer.categories),
 )
 

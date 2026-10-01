@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.sql import func
 
-from geopuls.categories import MVP_CATEGORIES
+from geopuls.categories import COMPETITOR_CATEGORIES
 from geopuls.config import get_settings
 from geopuls.console import enable_utf8_console
 from geopuls.db import create_engine, session_scope
@@ -37,10 +37,11 @@ COMPETITORS_LAYER = "competitors"
 
 
 def build_category_rows() -> list[dict[str, Any]]:
-    """Категории: восемь категорий конкурентов и по одной на каждый слой из каталога.
+    """Категории: категории конкурентов (MVP и вторая волна) и по одной на каждый слой из каталога.
 
-    Категория — это вариант внутри слоя, а её `osm_tags` — данные, а не код: новый слой из OSM
-    добавляется сидом (ADR 0013). Принадлежность категории к слою проставляет `seed_categories`.
+    Категория — это вариант внутри слоя, а её `osm_tags` — данные, а не код: новый слой или новая
+    категория конкурентов добавляются сидом (ADR 0013). Принадлежность категории к слою проставляет
+    `seed_categories`.
     """
     rows: list[dict[str, Any]] = [
         {
@@ -50,7 +51,7 @@ def build_category_rows() -> list[dict[str, Any]]:
             "color": category.color,
             "sort_order": index,
         }
-        for index, category in enumerate(MVP_CATEGORIES)
+        for index, category in enumerate(COMPETITOR_CATEGORIES)
     ]
 
     offset = len(rows)
@@ -71,7 +72,7 @@ def build_category_rows() -> list[dict[str, Any]]:
 
 def category_slugs_by_layer() -> dict[str, list[str]]:
     """Какие категории принадлежат какому слою: по этому списку проставляется `categories.layer_id`."""
-    mapping: dict[str, list[str]] = {COMPETITORS_LAYER: [category.slug for category in MVP_CATEGORIES]}
+    mapping: dict[str, list[str]] = {COMPETITORS_LAYER: [category.slug for category in COMPETITOR_CATEGORIES]}
     for layer in LAYERS:
         mapping[layer.slug] = [category.slug for category in layer.categories]
     return mapping

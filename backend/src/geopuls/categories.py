@@ -131,6 +131,124 @@ MVP_CATEGORIES: tuple[Category, ...] = (
 )
 
 
+#: Категории второй волны (план развития §5, разведка `docs/recon/2026-09-28-tomsk-categories.md` §4).
+#:
+#: Правила отбора те же, что были у MVP:
+#: - **не берём городскую инфраструктуру** (скамейки, урны, туалеты, детские площадки, светофоры):
+#:   это не конкуренты малому бизнесу;
+#: - **не берём то, что уже слой** (остановки, парковки, жильё, промзоны, пешеходные пути): они
+#:   измеряются иначе — площадью и километрами — и живут в своих слоях (ADR 0013);
+#: - **сначала разведка, потом код**: числа в комментариях каждой категории взяты из разведки, а не
+#:   придуманы. Категории, не дотянувшие до порога (сауны 36, спортивные клубы 28), не заведены:
+#:   карта конкурентов из трёх десятков объектов — это шум, а не ответ на вопрос.
+WAVE_2_CATEGORIES: tuple[Category, ...] = (
+    Category(
+        slug="banks",
+        name_ru="Банки и банкоматы",
+        color="#1f6fb2",
+        # ≈470 объектов в bbox: 120 отделений и 350 банкоматов. Банкомат — не отделение, но точка
+        # обслуживания: для кофейни рядом это трафик, для отделения — конкурент за тот же поток.
+        rules=(rule(("amenity", "bank")), rule(("amenity", "atm"))),
+    ),
+    Category(
+        slug="education",
+        name_ru="Школы, детсады, колледжи",
+        color="#1f6fb2",
+        # ≈440 объектов: 221 детсад, 164 школы, колледжи. Вузы не включаем: у них другая роль — это
+        # точки притяжения (слой anchors), а не конкуренты за потребителя.
+        rules=(
+            rule(("amenity", "kindergarten")),
+            rule(("amenity", "school")),
+            rule(("amenity", "college")),
+        ),
+    ),
+    Category(
+        slug="auto",
+        name_ru="Автосервис и автомойки",
+        color="#1f6fb2",
+        # ≈420 объектов: ремонт, запчасти, шины, мойки. Одна из самых «предпринимательских» категорий:
+        # тут много малых точек, которые ищут место с трафиком.
+        rules=(
+            rule(("shop", "car_repair")),
+            rule(("shop", "car_parts")),
+            rule(("shop", "tyres")),
+            rule(("amenity", "car_wash")),
+        ),
+    ),
+    Category(
+        slug="clothes",
+        name_ru="Одежда и обувь",
+        color="#1f6fb2",
+        # ≈280 объектов: одежда, обувь, сумки. Значения одного ключа взаимоисключающие — двойного учёта нет.
+        rules=(rule(("shop", "clothes")), rule(("shop", "shoes")), rule(("shop", "bag"))),
+    ),
+    Category(
+        slug="medical",
+        name_ru="Медицина (частная)",
+        color="#1f6fb2",
+        # ≈250 объектов. Правила заданы явным списком, а не `healthcare=*`: в OSM этим ключом помечают и
+        # `healthcare=yes`, и вспомогательные значения — широкое правило притащило бы в карту конкурентов
+        # объекты, которые никому не конкурируют.
+        rules=(
+            rule(("amenity", "dentist")),
+            rule(("amenity", "clinic")),
+            rule(("amenity", "doctors")),
+            rule(("healthcare", "dentist")),
+            rule(("healthcare", "clinic")),
+            rule(("healthcare", "doctor")),
+        ),
+    ),
+    Category(
+        slug="alcohol",
+        name_ru="Алкомаркеты",
+        color="#1f6fb2",
+        # 141 объект: специализированные магазины. Продажа алкоголя в супермаркетах сюда не входит —
+        # это другая конкуренция, и её видно в категории «Продукты».
+        rules=(rule(("shop", "alcohol")),),
+    ),
+    Category(
+        slug="diy",
+        name_ru="Стройматериалы и хозяйственные товары",
+        color="#1f6fb2",
+        # ≈130 объектов: строительные и хозяйственные магазины.
+        rules=(
+            rule(("shop", "doityourself")),
+            rule(("shop", "hardware")),
+            rule(("shop", "trade")),
+        ),
+    ),
+    Category(
+        slug="hotels",
+        name_ru="Гостиницы и хостелы",
+        color="#1f6fb2",
+        # ≈110 объектов: отели, гостевые дома, хостелы.
+        rules=(
+            rule(("tourism", "hotel")),
+            rule(("tourism", "guest_house")),
+            rule(("tourism", "hostel")),
+        ),
+    ),
+    Category(
+        slug="fuel",
+        name_ru="АЗС",
+        color="#1f6fb2",
+        # 109 объектов. Заправки — редкий случай, когда в OSM почти всегда есть бренд, поэтому
+        # «кто именно стоит рядом» здесь точнее, чем в других категориях.
+        rules=(rule(("amenity", "fuel")),),
+    ),
+    Category(
+        slug="flowers",
+        name_ru="Цветы",
+        color="#1f6fb2",
+        # 98 объектов: небольшие точки, для которых важен поток людей рядом.
+        rules=(rule(("shop", "florist")),),
+    ),
+)
+
+#: Все категории слоя «Конкуренты»: MVP и вторая волна.
+COMPETITOR_CATEGORIES: tuple[Category, ...] = (*MVP_CATEGORIES, *WAVE_2_CATEGORIES)
+
+
 class CategoryLike(Protocol):
     """Что импортёру нужно от категории: slug для записи и правило для проверки тегов.
 
@@ -143,7 +261,9 @@ class CategoryLike(Protocol):
     def matches(self, tags: Mapping[str, str]) -> bool: ...
 
 
-def match_categories(tags: Mapping[str, str], categories: Iterable[CategoryLike] = MVP_CATEGORIES) -> tuple[str, ...]:
+def match_categories(
+    tags: Mapping[str, str], categories: Iterable[CategoryLike] = COMPETITOR_CATEGORIES
+) -> tuple[str, ...]:
     """Вернуть slug'и всех категорий, под которые подходит объект (может быть несколько)."""
     return tuple(category.slug for category in categories if category.matches(tags))
 

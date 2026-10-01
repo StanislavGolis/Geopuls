@@ -252,7 +252,7 @@ async def test_aggregate_writes_metrics_consistent_with_stats(clean_engine: Asyn
             .one()
         )
 
-    # cell_stats отвечает за все активные категории, а слой конкурентов — только за свои восемь,
+    # cell_stats отвечает за все активные категории, а слой конкурентов — только за свои (18),
     # поэтому метрик у него меньше; сверяем числа по пересечению (matched) и порядок величин
     assert summary["metrics"] > 0
     assert summary["metrics"] < summary["stats"], "в слое конкурентов только его категории"
@@ -354,7 +354,8 @@ async def test_aggregate_computes_area_and_keeps_layers_apart(clean_engine: Asyn
         )
 
     assert summary["residential_max"] > 0, "площадь жилья обязана считаться по геометрии"
-    assert summary["competitors_categories"] == 8, "чужие категории не должны попадать к конкурентам"
+    # Восемь категорий MVP и десять второй волны; категории слоёв к конкурентам не попадают
+    assert summary["competitors_categories"] == 18, "чужие категории не должны попадать к конкурентам"
 
 
 async def test_aggregate_city_builds_grid_and_stats(clean_engine: AsyncEngine, tmp_path) -> None:  # type: ignore[no-untyped-def]

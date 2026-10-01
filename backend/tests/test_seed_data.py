@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from geopuls.categories import MVP_CATEGORIES
+from geopuls.categories import COMPETITOR_CATEGORIES
 from geopuls.importers.boundary import load_boundary
 from geopuls.layers_catalog import LAYERS_BY_SLUG
 from geopuls.models.layers import METRIC_KINDS
@@ -26,8 +26,8 @@ def test_category_rows_cover_mvp_and_layer_catalog() -> None:
     rows = build_category_rows()
     slugs = [row["slug"] for row in rows]
 
-    assert slugs[: len(MVP_CATEGORIES)] == [category.slug for category in MVP_CATEGORIES]
-    assert set(slugs) == {category.slug for category in MVP_CATEGORIES} | set(LAYERS_BY_SLUG)
+    assert slugs[: len(COMPETITOR_CATEGORIES)] == [category.slug for category in COMPETITOR_CATEGORIES]
+    assert set(slugs) == {category.slug for category in COMPETITOR_CATEGORIES} | set(LAYERS_BY_SLUG)
     assert [row["sort_order"] for row in rows] == list(range(len(rows)))
     assert len(set(slugs)) == len(rows)
     assert all(row["name_ru"] and row["color"] and row["osm_tags"] for row in rows)
@@ -37,7 +37,7 @@ def test_category_slugs_by_layer_matches_rows() -> None:
     """Каждая категория обязана получить слой: иначе её метрики некуда положить."""
     mapping = category_slugs_by_layer()
 
-    assert mapping[COMPETITORS_LAYER] == [category.slug for category in MVP_CATEGORIES]
+    assert mapping[COMPETITORS_LAYER] == [category.slug for category in COMPETITOR_CATEGORIES]
     assert {slug for slugs in mapping.values() for slug in slugs} == {row["slug"] for row in build_category_rows()}
     assert set(mapping) == {COMPETITORS_LAYER, *LAYERS_BY_SLUG}
 

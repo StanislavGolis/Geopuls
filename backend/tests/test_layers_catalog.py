@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from geopuls.categories import MVP_CATEGORIES
+from geopuls.categories import COMPETITOR_CATEGORIES
 from geopuls.layers_catalog import LAYERS, LAYERS_BY_SLUG, SPATIAL_METRICS
 from geopuls.models.layers import METRIC_KINDS
 from geopuls.recon.layers_scan import GROUPS_BY_SLUG
@@ -65,6 +65,6 @@ def test_layer_rows_and_categories_cover_catalog() -> None:
     assert len({row["sort_order"] for row in layer_rows}) == len(layer_rows)
 
     mapping = category_slugs_by_layer()
-    assert mapping["competitors"] == [category.slug for category in MVP_CATEGORIES]
+    assert mapping["competitors"] == [category.slug for category in COMPETITOR_CATEGORIES]
     assert set(mapping) == {row["slug"] for row in layer_rows}
     assert {slug for slugs in mapping.values() for slug in slugs} == {row["slug"] for row in build_category_rows()}

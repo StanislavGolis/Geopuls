@@ -38,8 +38,10 @@ def test_layers_registry_describes_metric_source_and_categories(client: TestClie
     assert competitors["metric_kind"] == "density"
     assert competitors["unit"] == "POI/км²"
     assert competitors["can_be_base"] is True
-    assert len(competitors["categories"]) == 8
+    assert len(competitors["categories"]) == 18
     assert "cafe" in competitors["categories"]
+    # Категории второй волны видны тем же ответом: интерфейс строит выбор из реестра, а не из списка в коде
+    assert {"banks", "education", "medical", "fuel"} <= set(competitors["categories"])
     # Источник с лицензией и атрибуцией: без них слой нельзя показывать пользователю
     assert competitors["source"]["slug"] == "osm"
     assert "OpenStreetMap" in competitors["source"]["attribution_text"]

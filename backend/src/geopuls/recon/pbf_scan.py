@@ -28,7 +28,7 @@ from typing import Any, Self
 
 import osmium
 
-from geopuls.categories import EXPLORATION_KEYS, MVP_CATEGORIES, has_address, is_poi_candidate, match_categories
+from geopuls.categories import COMPETITOR_CATEGORIES, EXPLORATION_KEYS, has_address, is_poi_candidate, match_categories
 from geopuls.console import enable_utf8_console
 from geopuls.osmfile import read_osm_timestamp
 
@@ -109,7 +109,7 @@ class CoverageScanner(osmium.SimpleHandler):
         self.bbox = bbox
         self.center = center
         self.radius_km = radius_km
-        self.stats: dict[str, CategoryStats] = {c.slug: CategoryStats() for c in MVP_CATEGORIES}
+        self.stats: dict[str, CategoryStats] = {c.slug: CategoryStats() for c in COMPETITOR_CATEGORIES}
         self.key_values: dict[str, Counter[str]] = {key: Counter() for key in EXPLORATION_KEYS}
         self.objects_with_poi_keys = 0
         self.objects_matched = 0
