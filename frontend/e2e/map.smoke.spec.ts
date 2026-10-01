@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Smoke-проверка карты: подложка, тепловой слой, отсутствие ошибок в консоли и сети.
@@ -10,6 +10,29 @@ import { expect, test } from "@playwright/test";
 
 /** URL карты с включённой отладочной ссылкой на объект карты (`?debug=1`). */
 const MAP_URL = "/?city=tomsk&category=cafe&debug=1";
+
+/**
+ * Сколько фич лежит в источнике карты (подсветка зон, объекты слоёв).
+ *
+ * Почему не `querySourceFeatures`: он отдаёт только фичи **загруженных тайлов**, и на проде фича могла
+ * попадать в источник, но не в тайл — проверка клялась «пусто» на верных данных. `serialize()`
+ * показывает то, что в источник действительно положено.
+ */
+function sourceFeatureCount(page: Page, sourceId: string): Promise<number> {
+  return page.evaluate((id) => {
+    const map = window.__geopulsMap as unknown as {
+      getSource: (sourceId: string) =>
+        | { serialize?: () => { data?: { features?: unknown[] } } }
+        | undefined;
+    };
+    const data = map?.getSource(id)?.serialize?.();
+    return data?.data?.features?.length ?? 0;
+  }, sourceId);
+}
+
+function selectedFeatureCount(page: Page): Promise<number> {
+  return sourceFeatureCount(page, "cells-selected");
+}
 
 /**
  * Адрес API для проверок, которые ходят мимо страницы.
@@ -445,19 +468,8 @@ test("клик по ячейке показывает объекты, точки
   expect(url.searchParams.get("center")).toMatch(/^-?\d+\.\d+,-?\d+\.\d+$/);
 
   // Выбранная ячейка подсвечена отдельным слоем (индекс GeoJSON перестраивается асинхронно)
-  await page.waitForFunction(
-    () =>
-      (
-        window.__geopulsMap as unknown as { querySourceFeatures: (id: string) => unknown[] }
-      ).querySourceFeatures("cells-selected").length > 0,
-    null,
-    { timeout: 15_000 },
-  );
-  const selected = await page.evaluate(
-    () =>
-      (window.__geopulsMap as unknown as { querySourceFeatures: (id: string) => unknown[] })
-        .querySourceFeatures("cells-selected").length,
-  );
+  await expect.poll(() => selectedFeatureCount(page), { timeout: 15_000 }).toBeGreaterThan(0);
+  const selected = await selectedFeatureCount(page);
   expect(selected).toBeGreaterThan(0);
 
   // Закрытие панели убирает ячейку из ссылки
@@ -819,14 +831,34 @@ test("виджеты зон: топ зон и классы плотности с
   // Наблюдения, а не вердикты (ADR 0015)
   await expect(widgets).not.toContainText("перегрев");
 
-  // Клик по классу плотности подсвечивает зоны контуром: контуры получают данные
-  await page.getByTestId("widget-class-0").click();
-  await expect(page.getByTestId("widget-class-0")).toHaveAttribute("aria-pressed", "true");
-  await expect
-    .poll(async () =>
-      page.evaluate(() => window.__geopulsMap?.querySourceFeatures("cells-selected").length ?? 0),
-    )
-    .toBeGreaterThan(0);
+  // Клик по классу плотности подсвечивает зоны контуром. Берём класс, в котором зоны есть: на реальных
+  // данных плотность дискретна, и первые классы часто пусты — клик по пустому классу честно ничего не
+  // подсвечивает (это не ошибка), но проверить тест он не даёт
+  const classButtons = widgets.locator('[data-testid^="widget-class-"]');
+  const classCount = await classButtons.count();
+  const zonesInClasses = async (): Promise<number> => {
+    let total = 0;
+    for (let index = 0; index < classCount; index += 1) {
+      const text = (await classButtons.nth(index).locator(".widgets__count").innerText()).trim();
+      total += Number(text) || 0;
+    }
+    return total;
+  };
+  // Виджеты видны раньше, чем до них доедут числа: ждём, что распределение уже посчитано
+  await expect.poll(zonesInClasses).toBeGreaterThan(0);
+
+  let classTarget = classButtons.first();
+  for (let index = 0; index < classCount; index += 1) {
+    const candidate = classButtons.nth(index);
+    const zones = Number((await candidate.locator(".widgets__count").innerText()).trim()) || 0;
+    if (zones > 0) {
+      classTarget = candidate;
+      break;
+    }
+  }
+  await classTarget.click();
+  await expect(classTarget).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => selectedFeatureCount(page)).toBeGreaterThan(0);
 
   // Клик по зоне открывает её карточку и живёт в ссылке — тот же выбор, что кликом по карте
   await widgets.locator('[data-testid^="widget-zone-"]').first().click();
@@ -921,12 +953,7 @@ test("объекты слоёв подсвечиваются на карте, в
 
   // Объекты действительно приезжают на карту: источник этого слоя не пуст
   await expect
-    .poll(async () =>
-      page.evaluate(
-        () => window.__geopulsMap?.querySourceFeatures("layer-objects-parking").length ?? 0,
-      ),
-      { timeout: 30_000 },
-    )
+    .poll(() => sourceFeatureCount(page, "layer-objects-parking"), { timeout: 30_000 })
     .toBeGreaterThan(0);
 
   // Панель честно сообщает, сколько объектов видно в границах вида
@@ -936,12 +963,7 @@ test("объекты слоёв подсвечиваются на карте, в
   await page.getByTestId("layer-objects-pedestrian").click();
   await expect(page).toHaveURL(/objects=parking,pedestrian/);
   await expect
-    .poll(async () =>
-      page.evaluate(
-        () => window.__geopulsMap?.querySourceFeatures("layer-objects-pedestrian").length ?? 0,
-      ),
-      { timeout: 30_000 },
-    )
+    .poll(() => sourceFeatureCount(page, "layer-objects-pedestrian"), { timeout: 30_000 })
     .toBeGreaterThan(0);
 
   // Ссылка с подсветкой открывает ту же сцену — и это вкладка «Инфраструктура»
