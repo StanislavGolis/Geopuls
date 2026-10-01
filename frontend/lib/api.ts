@@ -445,6 +445,8 @@ export type LayerObjectsResponse = {
     layer: string;
     layer_name: string;
     bbox: string;
+    /** Разрешение сетки, по которой отобраны объекты: показываем то, что попало в её ячейки. */
+    res: number;
     limit: number;
     total: number;
     returned: number;
@@ -460,16 +462,18 @@ export type LayerObjectsResponse = {
  * Объекты слоя в границах вида карты.
  *
  * Границы обязательны: слой целиком — это мегабайты JSON (жильё 2.3 МБ, пешеходные пути 0.9 МБ), а в
- * типичном виде карты — десятки килобайт. Упрощение контуров делает бэкенд.
+ * типичном виде карты — десятки килобайт. Отбор идёт по ячейкам сетки города, а геометрия объекта не
+ * обрезается: объект, задевший ячейку краем, приходит целиком. Упрощение контуров делает бэкенд.
  */
 export function fetchLayerObjects(query: {
   city: string;
   layer: string;
   bbox: string;
+  res?: number;
 }): Promise<LayerObjectsResponse> {
   return requestJson<LayerObjectsResponse>(
     `/api/v1/layers/${encodeURIComponent(query.layer)}/objects`,
-    { city: query.city, bbox: query.bbox },
+    { city: query.city, bbox: query.bbox, res: query.res },
   );
 }
 

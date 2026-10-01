@@ -336,7 +336,7 @@ test("клик по ячейке показывает объекты, точки
       const canvas = map.getCanvas();
       const canvasRect = canvas.getBoundingClientRect();
       const overlays = Array.from(
-        document.querySelectorAll(".legend, .poi-panel, .overlay"),
+        document.querySelectorAll(".legend, .zone-panel, .overlay"),
       ).map((element) => element.getBoundingClientRect());
 
       for (const target of targets) {
@@ -383,14 +383,15 @@ test("клик по ячейке показывает объекты, точки
   // Клик с координатами внутри элемента — без пересчёта в координаты окна
   await page.locator(".map__canvas").click({ position: { x: point!.x, y: point!.y } });
 
-  const panel = page.getByTestId("poi-panel");
+  const panel = page.getByTestId("zone-panel");
   await expect(panel).toBeVisible();
-  await expect(page.getByTestId("poi-count")).toContainText(/объект/);
+  await expect(page.getByTestId("zone-count")).toContainText(/объект/);
   await expect(panel.getByRole("link", { name: "OpenStreetMap" }).first()).toBeVisible();
   await expect(panel).not.toContainText("нет размеченных объектов");
 
-  // Дополнительный слой отвечает числами по этой же ячейке — рядом со списком её объектов
+  // Числа всех слоёв отвечают по этой же ячейке — рядом со списком её объектов, без их включения
   await expect(page.getByTestId("cell-metrics")).toContainText("Доля площади");
+  await expect(page.getByTestId("cell-metrics")).toContainText("основа карты");
 
   // Карта показывает, где именно стоят конкуренты выбранной ячейки, и только они: сверяем точки с
   // ответом API по той же ячейке и категории (без фильтра на карте оказались бы все объекты OSM).
@@ -460,7 +461,7 @@ test("клик по ячейке показывает объекты, точки
   expect(selected).toBeGreaterThan(0);
 
   // Закрытие панели убирает ячейку из ссылки
-  await page.getByRole("button", { name: "Закрыть список объектов" }).click();
+  await page.getByRole("button", { name: /Закрыть сводку/ }).click();
   await expect(panel).toHaveCount(0);
   await expect(page).not.toHaveURL(/cell=/);
 });
@@ -475,9 +476,9 @@ test("ссылка с состоянием открывает тот же кад
   await waitForStyle(page);
 
   // Список объектов открывается сразу по ссылке
-  const panel = page.getByTestId("poi-panel");
+  const panel = page.getByTestId("zone-panel");
   await expect(panel).toBeVisible();
-  await expect(page.getByTestId("poi-count")).toContainText(/объект/);
+  await expect(page.getByTestId("zone-count")).toContainText(/объект/);
 
   // Кадр восстанавливается из URL, а не по границам города
   const view = await page.evaluate(() => {
@@ -554,8 +555,10 @@ test("экспорт PNG и CSV отдаёт настоящие файлы", asy
   // Атрибуция обязательна и в экспорте (ODbL): первая строка — комментарий с источником
   expect(lines[0]).toContain("OpenStreetMap contributors");
   expect(lines[0]).toContain("ГЕОПУЛЬС");
-  // Колонки собраны из активных слоёв: базовый слой с вариантом и его показателями (count, доля адресов)
-  expect(lines[1].startsWith("h3,competitors_cafe_value,competitors_cafe_count,")).toBe(true);
+  // Колонки собраны из слоёв ответа: базовый слой с вариантом и его показателями (count, доля адресов),
+  // плюс значения остальных слоёв города — их показывает сводка по зоне
+  expect(lines[1]).toContain("competitors_cafe_value");
+  expect(lines[1]).toContain("competitors_cafe_count");
   expect(lines[1].endsWith(",lat,lon")).toBe(true);
   // Выгружается вся сетка города по текущей категории, включая пустые ячейки
   expect(lines.length).toBe(gridBody.meta.cell_count + 2);
@@ -628,16 +631,24 @@ test("панель слоёв не дублирует основу карты, �
   const panel = page.getByLabel("Слои карты");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("layer-base")).toHaveCount(0);
-  await expect(panel.getByTestId("layer-competitors")).toHaveCount(0);
+  await expect(panel.getByTestId("layer-objects-competitors")).toHaveCount(0);
   await expect(panel).not.toContainText("Основа карты");
-  await expect(panel.getByTestId("layer-transport_stops")).not.toBeChecked();
+
+  // Тумблеры, а не кнопки: у каждого слоя видно состояние «включено / выключено» и нет ограничения
+  // «один слой за раз»
+  const stops = panel.getByTestId("layer-objects-transport_stops");
+  await expect(stops).toHaveAttribute("role", "switch");
+  await expect(stops).not.toBeChecked();
 
   // Ссылку собирает сама карта: набор слоёв должен быть в адресе, иначе им нельзя поделиться
   await expect(page).toHaveURL(/base=competitors(:|%3A)cafe/);
 
-  await panel.getByTestId("layer-transport_stops").check();
+  await stops.check();
 
-  await expect(page).toHaveURL(/overlays=transport_stops/);
+  // Слои подсветки живут в ссылке; выбор «какие числа показать» больше не нужен: числа всех слоёв
+  // показывает сводка по зоне
+  await expect(page).toHaveURL(/objects=transport_stops/);
+  await expect(page).not.toHaveURL(/overlays=/);
   // Источник с лицензией виден в панели: слой без атрибуции показывать нельзя
   await expect(page.getByTestId("layer-sources")).toContainText("OpenStreetMap");
 });
@@ -812,11 +823,11 @@ test("виджеты зон: топ зон и классы плотности с
 
   // Клик по зоне открывает её карточку и живёт в ссылке — тот же выбор, что кликом по карте
   await widgets.locator('[data-testid^="widget-zone-"]').first().click();
-  await expect(page.getByTestId("poi-panel")).toBeVisible();
+  await expect(page.getByTestId("zone-panel")).toBeVisible();
   await expect.poll(() => page.url()).toContain("cell=");
 
   // Кнопка «Зоны» в панели сцены скрывает и возвращает сводку
-  await page.getByTestId("poi-panel").getByRole("button", { name: /Закрыть/ }).click();
+  await page.getByTestId("zone-panel").getByRole("button", { name: /Закрыть/ }).click();
   await page.getByTestId("widgets-close").click();
   await expect(page.getByTestId("cell-widgets")).toHaveCount(0);
   await page.getByTestId("toggle-widgets").click();
@@ -888,7 +899,7 @@ test("меню «Экспорт» открывает отчёт отдельно
   await report.close();
 });
 
-test("объекты слоя подсвечиваются на карте и живут в ссылке", async ({ page }) => {
+test("объекты слоёв подсвечиваются на карте, включаются тумблерами и живут в ссылке", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);
   await waitForStyle(page);
@@ -896,29 +907,46 @@ test("объекты слоя подсвечиваются на карте и ж
     timeout: 30_000,
   });
 
-  // Переключатель в панели слоёв: подсветка объектов, а не числа в карточке
-  await page.getByTestId("layer-map-parking").click();
-  await expect(page.getByTestId("layer-map-parking")).toHaveAttribute("aria-pressed", "true");
+  // Тумблер слоя: подсветка объектов, а не числа в сводке по зоне
+  await page.getByTestId("layer-objects-parking").click();
+  await expect(page.getByTestId("layer-objects-parking")).toBeChecked();
   await expect(page).toHaveURL(/objects=parking/);
 
-  // Объекты действительно приезжают на карту: источник слоя объектов не пуст
+  // Объекты действительно приезжают на карту: источник этого слоя не пуст
   await expect
     .poll(async () =>
-      page.evaluate(() => window.__geopulsMap?.querySourceFeatures("layer-objects").length ?? 0),
+      page.evaluate(
+        () => window.__geopulsMap?.querySourceFeatures("layer-objects-parking").length ?? 0,
+      ),
+      { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
 
   // Панель честно сообщает, сколько объектов видно в границах вида
-  await expect(page.getByTestId("layer-objects-note")).toBeVisible();
+  await expect(page.getByTestId("layer-objects-note-parking")).toBeVisible();
+
+  // Второй слой включается поверх первого: ограничения «один за раз» больше нет
+  await page.getByTestId("layer-objects-pedestrian").click();
+  await expect(page).toHaveURL(/objects=parking,pedestrian/);
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => window.__geopulsMap?.querySourceFeatures("layer-objects-pedestrian").length ?? 0,
+      ),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
 
   // Ссылка с подсветкой открывает ту же сцену — и это вкладка «Инфраструктура»
-  await page.goto("/?city=tomsk&category=cafe&objects=parking&debug=1");
+  await page.goto("/?city=tomsk&category=cafe&objects=parking,pedestrian&debug=1");
   await waitForStyle(page);
-  await expect(page.getByTestId("layer-map-parking")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("layer-objects-parking")).toBeChecked();
+  await expect(page.getByTestId("layer-objects-pedestrian")).toBeChecked();
   await expect(page.getByTestId("tab-infrastructure")).toHaveAttribute("aria-selected", "true");
 
-  // Повторный клик снимает подсветку: один слой за раз (план §6)
-  await page.getByTestId("layer-map-parking").click();
+  // Выключить можно так же, как включить: ссылка очищается от подсветки
+  await page.getByTestId("layer-objects-parking").click();
+  await page.getByTestId("layer-objects-pedestrian").click();
   await expect(page).not.toHaveURL(/objects=/);
 });
 

@@ -259,6 +259,7 @@ beforeEach(() => {
       layer: "population",
       layer_name: "Население",
       bbox: "84.90,56.40,85.10,56.50",
+      res: 9,
       limit: 2000,
       total: 0,
       returned: 0,
@@ -330,16 +331,19 @@ describe("MapExplorer", () => {
           city: "tomsk",
           tab: "infrastructure",
           base: "population",
-          overlays: "transport",
         }}
       />,
     );
 
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
+    // Наложения собираются сами: это все слои города, кроме базового — их числа показывает сводка по зоне
     expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
-      expect.objectContaining({ base: "population", overlays: "transport" }),
+      expect.objectContaining({ base: "population" }),
     );
+    const query = apiMock.fetchLayerGrid.mock.calls.at(-1)?.[0] as { overlays?: string };
+    expect(query.overlays ?? "").not.toContain("population");
+    expect(query.overlays ?? "").toContain("competitors");
     expect(screen.getByTestId("tab-infrastructure").getAttribute("aria-selected")).toBe("true");
   });
 
@@ -412,8 +416,11 @@ describe("MapExplorer", () => {
   });
 
   it("при потере связи показывает последние загруженные данные и баннер офлайн-режима", async () => {
-    // Кэш как после успешной загрузки: сетка уже была получена
-    saveGrid(gridCacheKey("tomsk", "competitors:cafe", "", 9), GRID);
+    // Кэш как после успешной загрузки: сетка уже была получена (ключ — город, база, наложения, res)
+    const overlays = LAYERS.filter((item) => item.slug !== "competitors")
+      .map((item) => item.slug)
+      .join(",");
+    saveGrid(gridCacheKey("tomsk", "competitors:cafe", overlays, 9), GRID);
     apiMock.fetchLayerGrid.mockRejectedValue(new ApiError(0, "Нет связи с сервисом", "fetch failed"));
 
     render(<MapExplorer styleUrl="style.json" />);
@@ -426,13 +433,13 @@ describe("MapExplorer", () => {
     expect(screen.queryByTestId("error")).toBeNull();
   });
 
-  it("клик по ячейке открывает список объектов и попадает в адресную строку", async () => {
+  it("клик по ячейке открывает сводку по зоне и попадает в адресную строку", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("click-cell").click();
 
-    const panel = await screen.findByTestId("poi-panel");
+    const panel = await screen.findByTestId("zone-panel");
     expect(panel).toBeTruthy();
     expect(await screen.findByText("Кофейня «Точка»")).toBeTruthy();
     expect(apiMock.fetchPois).toHaveBeenCalledWith({
@@ -456,7 +463,7 @@ describe("MapExplorer", () => {
     // запрос со «своим» res давал 404 — разрешение обязано следовать за ячейкой
     screen.getByTestId("click-cell-res8").click();
 
-    await screen.findByTestId("poi-panel");
+    await screen.findByTestId("zone-panel");
     expect(apiMock.fetchPois).toHaveBeenCalledWith({
       city: "tomsk",
       cell: "880b86a59dfffff",
@@ -486,14 +493,14 @@ describe("MapExplorer", () => {
     render(
       <MapExplorer
         styleUrl="style.json"
-        initialState={{ ...EMPTY_URL_STATE, city: "tomsk", overlays: "population" }}
+        initialState={{ ...EMPTY_URL_STATE, city: "tomsk" }}
       />,
     );
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("click-cell").click();
 
-    // Числа слоя читаются по той же ячейке: пользователь не переключает карту, а уточняет ответ
+    // Числа всех слоёв читаются по той же ячейке: ничего не нужно включать заранее
     const metrics = await screen.findByTestId("cell-metrics");
 
     expect(metrics.textContent).toContain("Население");
@@ -501,19 +508,19 @@ describe("MapExplorer", () => {
     expect(metrics.textContent).toContain("Плотность населения");
   });
 
-  it("смена категории закрывает список объектов прежней ячейки", async () => {
+  it("смена категории закрывает сводку прежней зоны", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
     screen.getByTestId("click-cell").click();
-    await screen.findByTestId("poi-panel");
+    await screen.findByTestId("zone-panel");
 
     // Смена значения как её делает React: присваиваем value и шлём change
     const select = screen.getByLabelText("Категория") as HTMLSelectElement;
     select.value = "bar";
     select.dispatchEvent(new Event("change", { bubbles: true }));
 
-    await waitFor(() => expect(screen.queryByTestId("poi-panel")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("zone-panel")).toBeNull());
     expect(window.location.search).not.toContain("cell=");
   });
 
@@ -629,7 +636,7 @@ describe("MapExplorer", () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("layer-map-population"));
+    fireEvent.click(screen.getByTestId("layer-objects-population"));
 
     // Запрос идёт по границам вида: слой целиком в браузер не тянем (план §6)
     await waitFor(() =>
@@ -641,7 +648,7 @@ describe("MapExplorer", () => {
     await waitFor(() => expect(window.location.search).toContain("objects=population"));
 
     // Повторный клик снимает подсветку: один слой за раз
-    fireEvent.click(screen.getByTestId("layer-map-population"));
+    fireEvent.click(screen.getByTestId("layer-objects-population"));
     await waitFor(() => expect(window.location.search).not.toContain("objects="));
   });
 
@@ -672,34 +679,42 @@ describe("MapExplorer", () => {
     );
   });
 
-  it("включение слоя меняет запрос и попадает в ссылку", async () => {
+  it("тумблер слоя включает его объекты на карте и попадает в ссылку", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("layer-transport"));
+    fireEvent.click(screen.getByTestId("layer-objects-transport"));
 
+    await waitFor(() => expect(window.location.search).toContain("objects=transport"));
+    // Объекты запрашиваются по границам вида: карта сообщает их при движении
     await waitFor(() =>
-      expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
-        expect.objectContaining({ base: "competitors:cafe", overlays: "transport" }),
+      expect(apiMock.fetchLayerObjects).toHaveBeenCalledWith(
+        expect.objectContaining({ layer: "transport" }),
       ),
     );
-    expect(window.location.search).toContain("overlays=transport");
   });
 
-  it("слои включаются все: они не спорят за одну карту", async () => {
+  it("слоёв можно включить сколько угодно: ограничения «один за раз» больше нет", async () => {
     render(<MapExplorer styleUrl="style.json" />);
     await waitFor(() => expect(apiMock.fetchLayerGrid).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("layer-transport"));
-    fireEvent.click(screen.getByTestId("layer-population"));
-    await waitFor(() => expect(window.location.search).toContain("overlays=transport,population"));
+    fireEvent.click(screen.getByTestId("layer-objects-transport"));
+    fireEvent.click(screen.getByTestId("layer-objects-population"));
+    await waitFor(() => expect(window.location.search).toContain("objects=transport,population"));
 
-    // Раньше третье наложение запрещалось: контуры делали карту нечитаемой. Теперь слои дают числа
-    // в карточке ячейки, поэтому ограничения в интерфейсе нет.
-    const third = screen.getByTestId("layer-pedestrian") as HTMLInputElement;
+    // Третий слой тоже доступен: каждый рисуется своим цветом, а не заменяет предыдущий
+    const third = screen.getByTestId("layer-objects-pedestrian") as HTMLInputElement;
     expect(third.disabled).toBe(false);
     fireEvent.click(third);
-    await waitFor(() => expect(window.location.search).toContain("overlays=transport,population,pedestrian"));
+    await waitFor(() =>
+      expect(window.location.search).toContain("objects=transport,population,pedestrian"),
+    );
+
+    // Выключить можно тоже все: повторный клик снимает слой из ссылки
+    fireEvent.click(screen.getByTestId("layer-objects-transport"));
+    fireEvent.click(screen.getByTestId("layer-objects-population"));
+    fireEvent.click(screen.getByTestId("layer-objects-pedestrian"));
+    await waitFor(() => expect(window.location.search).not.toContain("objects="));
   });
 
   it("основу карты в «Конкурентах» не переключают: это главный ответ приложения", async () => {
@@ -709,9 +724,9 @@ describe("MapExplorer", () => {
     // В «Конкурентах» выбора основы нет: он живёт во вкладке «Инфраструктура» (ADR 0016)
     expect(screen.queryByTestId("base-population")).toBeNull();
     expect(screen.queryByTestId("infra-layer")).toBeNull();
-    // Основу не рисуют ни блоком, ни строкой в списке слоёв: её называет вкладка «Конкуренты»
+    // Основу не рисуют ни блоком, ни тумблером в списке слоёв: её называет вкладка «Конкуренты»
     expect(screen.queryByTestId("layer-base")).toBeNull();
-    expect(screen.queryByTestId("layer-competitors")).toBeNull();
+    expect(screen.queryByTestId("layer-objects-competitors")).toBeNull();
     expect(apiMock.fetchLayerGrid).toHaveBeenCalledWith(
       expect.objectContaining({ base: "competitors:cafe" }),
     );

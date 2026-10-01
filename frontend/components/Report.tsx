@@ -29,6 +29,7 @@ import {
   baseColumn,
   layerLegend,
   parseLayerRef,
+  serializeLayerList,
   serializeLayerRef,
   type LayerRef,
 } from "@/lib/layers";
@@ -92,8 +93,20 @@ export default function Report({ state, styleUrl }: ReportProps) {
         const base = resolved.category ? serializeLayerRef(resolved) : resolved.slug;
         const res = state.res ?? 9;
 
+        // Наложения — все слои города, кроме базового: сводка по зоне в отчёте показывает числа по всем
+        // слоям, и выборочного «что показать» больше нет (см. §4.11 дизайн-спеки)
+        const overlays = serializeLayerList(
+          registry.layers
+            .filter((layer) => layer.slug !== resolved.slug)
+            .map((layer) =>
+              layer.slug === COMPETITORS_SLUG
+                ? { slug: layer.slug, category: resolved.category ?? layer.categories[0] ?? null }
+                : { slug: layer.slug, category: null },
+            ),
+        );
+
         const [grid, cityProfile] = await Promise.all([
-          fetchLayerGrid({ city: city.slug, base, res, overlays: state.overlays ?? undefined }),
+          fetchLayerGrid({ city: city.slug, base, res, overlays: overlays || undefined }),
           fetchCityProfile(city.slug),
         ]);
 
@@ -141,7 +154,6 @@ export default function Report({ state, styleUrl }: ReportProps) {
     state.tab,
     state.category,
     state.base,
-    state.overlays,
     state.res,
     state.compare,
     state.around,
@@ -560,8 +572,9 @@ function buildStateSearch(state: UrlState): string {
     tab: state.tab,
     category: state.category,
     base: state.base,
-    overlays: state.overlays,
     cell: state.cell,
+    // Подсветку объектов слоёв ссылка тоже несёт: из отчёта можно вернуться к той же карте
+    objects: state.objects,
     compare: state.compare,
     around: state.around,
     radius: state.radius,

@@ -11,8 +11,8 @@ import ExportMenu from "@/components/ExportMenu";
 import LayerPanel from "@/components/LayerPanel";
 import Legend from "@/components/Legend";
 import MapSkeleton from "@/components/MapSkeleton";
-import MapView, { type MapViewHandle } from "@/components/MapView";
-import PoiPanel, { type CellMetricView } from "@/components/PoiPanel";
+import MapView, { type MapViewHandle, type ObjectLayer } from "@/components/MapView";
+import ZonePanel, { type CellMetricView } from "@/components/ZonePanel";
 import TabNav from "@/components/TabNav";
 import {
   ApiError,
@@ -46,11 +46,12 @@ import {
   baseColumn,
   isPartiallyCovered,
   layerLegend,
-  parseLayerList,
   parseLayerRef,
+  parseObjectLayers,
   resolveBaseLayer,
   serializeLayerList,
   serializeLayerRef,
+  serializeObjectLayers,
   type LayerRef,
 } from "@/lib/layers";
 import { stopPanelClick } from "@/lib/panels";
@@ -78,6 +79,8 @@ type ShareStatus = "idle" | "copied" | "shared";
 const DEFAULT_RES = resolutionForZoom(12);
 /** Порог «мало данных» для честного предупреждения в легенде. */
 const THIN_DATA_THRESHOLD = 30;
+/** Цвет объектов слоя, если реестр не дал свой: нейтральный, чтобы не перепутать со слоем. */
+const DEFAULT_OBJECT_COLOR = "#334155";
 /** Сколько держать подсказку о ссылке, мс. */
 const SHARE_HINT_MS = 3000;
 
@@ -107,13 +110,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     return ref && ref.slug !== COMPETITORS_SLUG ? ref.slug : null;
   });
   /**
-   * Дополнительные слои: их числа показываются в карточке выбранной ячейки.
+   * Слои, объекты которых подсвечены на карте (план §6).
    *
-   * На карту они не рисуются — основа всегда одна (конкуренты), поэтому ограничение в два слоя больше
-   * не нужно: оно защищало читаемость заливки, которой на карте нет. Слои задают дополнительную
-   * информацию о том же гексе, а не вторую картинку поверх первой.
+   * Включить можно сколько угодно: каждый слой рисуется своим цветом из реестра, а читаемость держит
+   * зум. Числа по всем слоям живут в сводке по зоне и от этих тумблеров не зависят.
    */
-  const [infoRefs, setInfoRefs] = useState<LayerRef[]>(() => parseLayerList(initial.overlays));
+  const [objectsSlugs, setObjectsSlugs] = useState<string[]>(() => parseObjectLayers(initial.objects));
+  /** Объекты включённых слоёв по границам вида: у каждого слоя свой ответ и свой источник на карте. */
+  const [objectsData, setObjectsData] = useState<Record<string, LayerObjectsResponse | null>>({});
   const [res, setRes] = useState<8 | 9>(initial.res ?? DEFAULT_RES);
   const [grid, setGrid] = useState<LayerGrid | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -144,14 +148,6 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const [widgetsOpen, setWidgetsOpen] = useState(true);
   /** Класс плотности, подсвеченный на карте контуром (`null` — не выбран). */
   const [classIndex, setClassIndex] = useState<number | null>(null);
-  /**
-   * Слой, объекты которого подсвечены на карте (план §6). Один слой за раз: переключатель в панели
-   * слоёв, как у радио — пять контуров друг поверх друга нечитаемы.
-   */
-  const [objectsSlug, setObjectsSlug] = useState<string | null>(initial.objects);
-  /** Объекты этого слоя в границах вида карты: грузятся отдельным запросом по bbox. */
-  const [objectsData, setObjectsData] = useState<LayerObjectsResponse | null>(null);
-
   const mapRef = useRef<MapViewHandle | null>(null);
   /** Просьба подвести карту к выбранной зоне: ставится виджетом, снимается эффектом подведения. */
   const focusPendingRef = useRef(false);
@@ -195,7 +191,26 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
 
   /** Ключи слоёв для запросов и ссылок: строка стабильна и годится как зависимость эффекта. */
   const baseKey = baseRef ? serializeLayerRef(baseRef) : null;
-  const infoLayersKey = serializeLayerList(infoRefs);
+  /**
+   * Наложения для ответа карты: все слои, кроме базового.
+   *
+   * Отдельного выбора «какие слои показать числами» больше нет: сводка по зоне показывает всё, что
+   * известно про зону, а слои ответа — это её источник данных. Технический предел (6 наложений) не
+   * мешает: реестр города — 7 слоёв, и базовым может быть любой из них.
+   */
+  const overlayRefs = useMemo<LayerRef[]>(() => {
+    if (!baseRef) return [];
+    return layers
+      .filter((item) => item.slug !== baseRef.slug)
+      .map((item) =>
+        item.slug === COMPETITORS_SLUG
+          ? { slug: item.slug, category: competitorCategory ?? item.categories[0] ?? null }
+          : { slug: item.slug, category: null },
+      );
+  }, [layers, baseRef, competitorCategory]);
+  const overlayKey = serializeLayerList(overlayRefs);
+  /** Слои подсветки одной строкой: массив не годится как зависимость эффекта (новая ссылка каждый раз). */
+  const objectsKey = serializeObjectLayers(objectsSlugs);
 
   // Справочники: города, категории и реестр слоёв
   useEffect(() => {
@@ -245,14 +260,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     requestRef.current = controller;
 
     setStatus("loading");
-    const cacheKey = gridCacheKey(citySlug, baseKey, infoLayersKey, res);
+    const cacheKey = gridCacheKey(citySlug, baseKey, overlayKey, res);
 
     (async () => {
       try {
         const response = await fetchLayerGrid({
           city: citySlug,
           base: baseKey,
-          overlays: infoLayersKey || undefined,
+          overlays: overlayKey || undefined,
           res,
         });
         if (controller.signal.aborted) return;
@@ -284,7 +299,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     })();
 
     return () => controller.abort();
-  }, [citySlug, baseKey, infoLayersKey, res, reloadToken]);
+  }, [citySlug, baseKey, overlayKey, res, reloadToken]);
 
   /**
    * Разрешение в состоянии держим в актуальном виде, но выбранную зону при его смене не сбрасываем.
@@ -318,12 +333,11 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       // Если пользователь ещё не выбирал показатель, в ссылку идёт тот, которым карта уже покрашена:
       // ссылка должна описывать то, что на экране, а не то, что мы собирались показать
       base: tab === "infrastructure" ? (infraSlug ?? baseRef.slug) : serializeLayerRef(baseRef),
-      overlays: infoLayersKey || null,
       cell: selectedCell,
       compare: compareRefs.join(",") || null,
       around: aroundPoint,
       radius: aroundPoint ? radiusM : null,
-      objects: objectsSlug,
+      objects: objectsKey || null,
       res,
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
@@ -334,12 +348,11 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     competitorCategory,
     infraSlug,
     baseRef,
-    infoLayersKey,
     selectedCell,
     compareRefs,
     aroundPoint,
     radiusM,
-    objectsSlug,
+    objectsKey,
     res,
     view,
   ]);
@@ -412,53 +425,69 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   const outlineCells = useMemo(() => [...compareRefs, ...classCells], [compareRefs, classCells]);
 
   /**
-   * Объекты подсвеченного слоя — грузим по границам вида.
+   * Объекты включённых слоёв — грузим по границам вида, каждому слою свой запрос.
    *
    * Границы обязательны (см. `api/objects.py`): в типичном виде карты это десятки килобайт, а слой
    * целиком — мегабайты. При движении карты запрос повторяем: `moveend` — это завершённое действие, а не
-   * поток событий, поэтому отдельный debounce не нужен.
+   * поток событий, поэтому отдельный debounce не нужен. Запросы идут параллельно: семь слоёв ждать по
+   * очереди было бы обидно.
    */
   useEffect(() => {
-    if (!citySlug || !objectsSlug || !view?.bbox) {
-      setObjectsData(null);
+    const slugs = parseObjectLayers(objectsKey);
+    if (!citySlug || slugs.length === 0 || !view?.bbox) {
+      setObjectsData({});
       return;
     }
 
     let cancelled = false;
     (async () => {
-      try {
-        const response = await fetchLayerObjects({
-          city: citySlug,
-          layer: objectsSlug,
-          bbox: view.bbox,
-        });
-        if (!cancelled) setObjectsData(response);
-      } catch {
-        // Объекты слоя — подсказка «где именно», а не данные: о проблеме сообщит карточка ячейки
-        if (!cancelled) setObjectsData(null);
-      }
+      const entries = await Promise.all(
+        slugs.map(async (slug) => {
+          try {
+            const response = await fetchLayerObjects({
+              city: citySlug,
+              layer: slug,
+              bbox: view.bbox,
+              res,
+            });
+            return [slug, response] as const;
+          } catch {
+            // Объекты слоя — подсказка «где именно», а не данные: о проблеме скажет сводка по зоне
+            return [slug, null] as const;
+          }
+        }),
+      );
+      if (!cancelled) setObjectsData(Object.fromEntries(entries));
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [citySlug, objectsSlug, view?.bbox]);
+  }, [citySlug, objectsKey, view?.bbox, res]);
 
   /**
-   * Подсветка объектов слоя: один слой за раз, повторный выбор снимает подсветку.
+   * Тумблер слоя: включить или выключить его объекты на карте.
    *
-   * Так же, как с инструментами: два контура поверх заливки уже спорят за внимание, а пять превращают
-   * карту в кашу (план §6).
+   * Ограничения «один слой за раз» больше нет: слоёв можно включить сколько угодно, у каждого свой
+   * цвет из реестра, а разбираться в наплыве контуров помогает зум. Выбор зоны не сбрасываем: человек
+   * может смотреть сводку по зоне и подбирать подсветку одновременно.
    */
   const toggleObjects = useCallback((slug: string) => {
-    setObjectsSlug((current) => (current === slug ? null : slug));
-    setSelectedCell(null);
+    setObjectsSlugs((current) =>
+      current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug],
+    );
   }, []);
 
-  /** Цвет объектов — цвет слоя: слой и его объекты должны читаться как одно. */
-  const objectsColor = useMemo(
-    () => layers.find((item) => item.slug === objectsSlug)?.color ?? "#334155",
-    [layers, objectsSlug],
+  /** Слои подсветки для карты: только те, чьи объекты уже загружены. */
+  const objectLayers = useMemo<ObjectLayer[]>(
+    () =>
+      objectsSlugs.flatMap((slug) => {
+        const data = objectsData[slug];
+        if (!data) return [];
+        const meta = layers.find((item) => item.slug === slug);
+        return [{ slug, color: meta?.color ?? DEFAULT_OBJECT_COLOR, data }];
+      }),
+    [objectsSlugs, objectsData, layers],
   );
 
   // Смена слоя или города меняет шкалу классов: подсветка прежнего класса теряет смысл
@@ -479,30 +508,27 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     mapRef.current?.focusCell(selectedCell);
   }, [selectedCell]);
   /**
-   * Значения включённых слоёв для выбранной ячейки — их показывает карточка объекта.
+   * Сводка по зоне: значения **всех** слоёв по выбранной ячейке.
    *
-   * Считаем по индексу ячейки в уже загруженной сетке: отдельного запроса не нужно, а «нет данных»
-   * (`null`) честно доезжает до интерфейса — ноль означал бы «здесь этого нет».
+   * Слои не «включаются»: сводка показывает всё, что известно про зону, и умолчать о части данных
+   * значило бы соврать. Считаем по индексу ячейки в уже загруженной сетке: отдельного запроса не нужно,
+   * а «нет данных» (`null`) честно доезжает до интерфейса — ноль означал бы «здесь этого нет».
    */
   const cellMetrics = useMemo<CellMetricView[]>(() => {
     if (!grid || !selectedCell) return [];
     const index = grid.cells.h3.indexOf(selectedCell);
     if (index < 0) return [];
 
-    return infoRefs.flatMap((ref) => {
-      const column = grid.layers.find((item) => item.slug === ref.slug);
-      if (!column) return [];
-      return [
-        {
-          slug: column.slug,
-          name: column.name,
-          unit: column.unit,
-          metricKind: column.metric_kind,
-          value: column.values[index] ?? null,
-        },
-      ];
-    });
-  }, [grid, selectedCell, infoRefs]);
+    return grid.layers.map((column) => ({
+      slug: column.slug,
+      name: column.name,
+      unit: column.unit,
+      metricKind: column.metric_kind,
+      role: column.role,
+      value: column.values[index] ?? null,
+      covered: column.covered_count >= grid.meta.cell_count,
+    }));
+  }, [grid, selectedCell]);
   const exportContext = useMemo<ExportContext | null>(() => {
     if (!city || !grid) return null;
 
@@ -619,22 +645,6 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   /** Смена категории конкурентов: карта перекрашивается, выбранная зона сбрасывается. */
   const selectCategory = useCallback((slug: string) => {
     setCompetitorCategory(slug);
-    setSelectedCell(null);
-  }, []);
-
-  /**
-   * Включить или выключить дополнительный слой.
-   *
-   * Ограничения на число слоёв здесь нет: они не рисуются на карте, а добавляют числа в карточку
-   * ячейки. Технический лимит запроса живёт на стороне API и говорит про размер ответа, а не про
-   * читаемость картинки.
-   */
-  const toggleInfoLayer = useCallback((ref: LayerRef) => {
-    setInfoRefs((current) =>
-      current.some((item) => item.slug === ref.slug)
-        ? current.filter((item) => item.slug !== ref.slug)
-        : [...current, ref],
-    );
     setSelectedCell(null);
   }, []);
 
@@ -856,9 +866,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             around={aroundOpen && aroundPoint ? { ...aroundPoint, radiusM } : null}
             // Клик ставит точку только в режиме радиуса: в остальное время он открывает карточку
             onPointSelect={aroundOpen ? handlePointSelect : undefined}
-            // Объекты подсвеченного слоя: один слой за раз, своей геометрией (план §6)
-            objects={objectsData}
-            objectsColor={objectsColor}
+            // Объекты включённых слоёв: у каждого свой цвет и свой источник (план §6)
+            objectLayers={objectLayers}
             // Точки в ячейке — по той же категории, что и список объектов в панели
             category={baseCategory}
             onCellSelect={handleCellSelect}
@@ -874,11 +883,8 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           <LayerPanel
             layers={layers}
             base={baseLayer}
-            active={infoRefs}
-            grid={grid}
-            objectsSlug={objectsSlug}
+            objectsSlugs={objectsSlugs}
             objectsData={objectsData}
-            onToggle={toggleInfoLayer}
             onToggleObjects={toggleObjects}
           />
         )}
@@ -962,18 +968,19 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
           </div>
         )}
 
-        {/* Карточка зоны: в «Конкурентах» — список организаций, в «Инфраструктуре» — числа слоёв.
-            В «Инструментах» и «Городе» клик по карте значит другое, поэтому карточки там нет */}
+        {/* Сводка по зоне: числа всех слоёв и объекты выбранной категории. В «Инструментах» и «Городе»
+            клик по карте значит другое, поэтому сводки там нет */}
         {citySlug && selectedCell && (tab === "competitors" || tab === "infrastructure") && (
-          <PoiPanel
+          <ZonePanel
             city={citySlug}
-            category={baseCategory}
             cell={selectedCell}
             // Разрешение берём у самой ячейки: состояние может опережать отрисованный слой при смене
             // разрешения по зуму, и тогда запрос со «своим» res давал 404 (см. resolutionOfCell)
             res={resolutionOfCell(selectedCell) ?? res}
+            category={baseCategory}
             categoryNames={categoryNames}
             metrics={cellMetrics}
+            baseBreaks={baseColumnData?.breaks ?? null}
             onClose={() => setSelectedCell(null)}
           />
         )}

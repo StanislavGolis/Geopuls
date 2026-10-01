@@ -243,6 +243,8 @@ class LayerObjectsMeta(BaseModel):
     layer: str
     layer_name: str
     bbox: str
+    #: Разрешение сетки, по которой отобраны объекты: показываем то, что попало в её ячейки
+    res: int
     limit: int
     #: Всего объектов слоя в этом bbox — чтобы честно сказать «показано N из M»
     total: int

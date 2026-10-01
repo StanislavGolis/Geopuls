@@ -4,6 +4,13 @@
 без них слой нельзя проверить глазами, видно только числа. Здесь отдаём объекты своей геометрией:
 парковки и жильё — полигонами, пешеходные пути — линиями, остановки и точки притяжения — точками.
 
+Отбор — по сетке города и границам вида:
+- объект показывается, только если его ячейка входит в сетку города (`city_cells`): слой измеряется по
+  гексам, и за их пределами его объектов не существует — рисовать там найденное в OSM значило бы
+  показывать то, чего нет в числах;
+- объект, задевший вид краем, рисуется **целиком**: контур дома или парковки, разрезанный по краю экрана,
+  читать нельзя, поэтому геометрия не обрезается, а фильтр идёт по её пересечению, а не по точке.
+
 Обязательный bbox — следствие замера, а не придирка: жильё по всему городу это 2.3 МБ JSON, пешеходные
 пути — 0.9 МБ, а в типичном виде карты (≈1.5 × 2.2 км) — 66 и 94 КБ. Упрощаем контуры на 3 м
 (`ST_SimplifyPreserveTopology`): контур нужен, чтобы узнать объект на карте, а измеряют пусть ячейки.
@@ -40,6 +47,15 @@ SIMPLIFY_DEGREES = 0.00003
 #: Сколько знаков после запятой оставляем в координатах (≈0.1 м): больше — шум в JSON.
 COORDINATE_DIGITS = 6
 
+#: Общая часть отбора: объекты слоя, попавшие в ячейки сетки города и в границы вида.
+#:
+#: Почему не «просто bbox»: слой измеряется по гексам, и за пределами сетки его объектов не существует —
+#: рисовать там найденное в OSM (например, за границей города) значило бы показывать данные, которых нет
+#: в числах. Поэтому отбор идёт по привязке объекта к ячейке (`h3_r9`/`h3_r8` — их считает импорт).
+#:
+#: Почему фильтр по геометрии, а не по точке: объект, задевший ячейку краем, рисуется **целиком** —
+#: контур дома или парковки, разрезанный по границе вида, читать нельзя. `ST_Intersects` отбирает такой
+#: объект, но геометрию не обрезает: дорисовка за границу вида — это ровно то, что нужно.
 OBJECTS_SQL = """
 WITH bbox_area AS (
     SELECT ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)::geometry AS bbox
@@ -57,9 +73,16 @@ FROM pois p
 JOIN poi_categories pc ON pc.poi_id = p.id
 JOIN categories cat ON cat.id = pc.category_id
 JOIN layers l ON l.id = cat.layer_id
+JOIN cities c ON c.slug = :city
 CROSS JOIN bbox_area
 WHERE p.is_active AND l.slug = :layer
-  AND ST_Intersects(p.location::geometry, bbox_area.bbox)
+  AND EXISTS (
+      SELECT 1 FROM city_cells cc
+      WHERE cc.city_id = c.id
+        AND cc.resolution = :res
+        AND cc.h3_index = CASE WHEN :res = 9 THEN p.h3_r9 ELSE p.h3_r8 END
+  )
+  AND ST_Intersects(COALESCE(p.geometry::geometry, p.location::geometry), bbox_area.bbox)
 ORDER BY p.osm_id
 LIMIT :limit
 """
@@ -73,9 +96,16 @@ FROM pois p
 JOIN poi_categories pc ON pc.poi_id = p.id
 JOIN categories cat ON cat.id = pc.category_id
 JOIN layers l ON l.id = cat.layer_id
+JOIN cities c ON c.slug = :city
 CROSS JOIN bbox_area
 WHERE p.is_active AND l.slug = :layer
-  AND ST_Intersects(p.location::geometry, bbox_area.bbox)
+  AND EXISTS (
+      SELECT 1 FROM city_cells cc
+      WHERE cc.city_id = c.id
+        AND cc.resolution = :res
+        AND cc.h3_index = CASE WHEN :res = 9 THEN p.h3_r9 ELSE p.h3_r8 END
+  )
+  AND ST_Intersects(COALESCE(p.geometry::geometry, p.location::geometry), bbox_area.bbox)
 """
 
 
@@ -96,13 +126,15 @@ async def get_layer_objects(
     slug: str,
     city: Annotated[str, Query(description="slug города, например tomsk")],
     bbox: Annotated[str, Query(description="границы вида: min_lon,min_lat,max_lon,max_lat")],
+    res: Annotated[int, Query(ge=8, le=9, description="разрешение сетки города (8 — обзор, 9 — детально)")] = 9,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT, description="сколько объектов вернуть")] = DEFAULT_LIMIT,
 ) -> LayerObjectsResponse | Response:
     """Объекты слоя своей геометрией — «проверить слой глазами».
 
-    Границы вида обязательны: слой целиком (жильё — 15 050 полигонов) в браузер не отдаём. Если объектов
-    в границах больше лимита, честно сообщаем об этом в `meta.truncated` — интерфейс покажет, что видит
-    не всё.
+    Границы вида обязательны: слой целиком (жильё — 15 050 полигонов) в браузер не отдаём. Показываем
+    только то, что попало в ячейки сетки города; объект, задевший ячейку краем, приходит целиком. Если
+    объектов в границах больше лимита, честно сообщаем об этом в `meta.truncated` — интерфейс покажет,
+    что видит не всё.
     """
     await require_city(session, city)
     layer = await require_layer(session, slug)
@@ -113,12 +145,14 @@ async def get_layer_objects(
         raise ProblemException(400, str(exc)) from exc
 
     version = await load_data_version(session)
-    etag = make_etag("objects", city, slug, bbox, limit, version.version)
+    etag = make_etag("objects", city, slug, bbox, res, limit, version.version)
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": DATA_CACHE_CONTROL})
 
     params: dict[str, Any] = {
+        "city": city,
         "layer": slug,
+        "res": res,
         "min_lon": min_lon,
         "min_lat": min_lat,
         "max_lon": max_lon,
@@ -155,6 +189,7 @@ async def get_layer_objects(
             layer=slug,
             layer_name=str(layer["name_ru"]),
             bbox=bbox,
+            res=res,
             limit=limit,
             total=total,
             returned=len(features),

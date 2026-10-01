@@ -96,18 +96,18 @@ describe("buildSearch", () => {
       city: "tomsk",
       category: "cafe",
       base: "competitors:cafe",
-      overlays: "population,transport",
       cell: CELL,
       compare: null,
       around: { lat: 56.4847, lon: 84.9482 },
       radius: 1000,
-      objects: null,
+      // Слои подсветки — список: включено может быть несколько (тумблеры в панели слоёв)
+      objects: "parking,pedestrian",
       res: 9 as const,
       zoom: 13,
       center: { lat: 56.473, lon: 85.024 },
     };
 
-    // Вкладку ссылка не хранит: клиент выводит её из состояния (точка радиуса → «Инструменты»)
+    // Вкладку ссылка не хранит: клиент выводит её из состояния (точка радиуса важнее подсветки)
     expect(parseUrlState(buildSearch(original))).toEqual({ ...original, tab: "tools" });
   });
 
@@ -173,17 +173,28 @@ describe("buildSearch", () => {
     expect(parseCellList("")).toEqual([]);
   });
 
-  it("читает базовый слой и наложения из ссылки", () => {
-    const state = parseUrlState("?city=tomsk&base=competitors:cafe&overlays=population,transport");
+  it("читает базовый слой и слои подсветки из ссылки", () => {
+    const state = parseUrlState("?city=tomsk&base=competitors:cafe&objects=parking,pedestrian");
 
     expect(state.base).toBe("competitors:cafe");
-    expect(state.overlays).toBe("population,transport");
+    // Список нормализуется: мусор и повторы отбрасываются, порядок сохраняется
+    expect(state.objects).toBe("parking,pedestrian");
+    expect(parseUrlState("?city=tomsk&objects=parking,мусор,parking").objects).toBe("parking");
+    expect(parseUrlState("?city=tomsk&objects=мусор").objects).toBeNull();
   });
 
   it("пишет базовый слой рядом с категорией: старые клиенты читают ссылку по-прежнему", () => {
-    const search = buildSearch({ city: "tomsk", category: "cafe", base: "competitors:cafe", overlays: "population" });
+    const search = buildSearch({ city: "tomsk", category: "cafe", base: "competitors:cafe" });
 
-    expect(search).toBe("city=tomsk&category=cafe&base=competitors:cafe&overlays=population");
+    expect(search).toBe("city=tomsk&category=cafe&base=competitors:cafe");
+  });
+
+  it("параметр overlays больше не пишется: числа слоёв показывает сводка по зоне", () => {
+    // Старая ссылка не ломается — она просто открывает новое поведение без выбора слоёв
+    const state = parseUrlState("?city=tomsk&base=competitors:cafe&overlays=population");
+
+    expect(state.base).toBe("competitors:cafe");
+    expect(buildSearch({ ...state, tab: null })).toBe("city=tomsk&base=competitors:cafe");
   });
 
   it("не пишет центр без зума", () => {

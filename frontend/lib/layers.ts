@@ -64,6 +64,28 @@ export function serializeLayerList(refs: LayerRef[]): string {
   return refs.slice(0, MAX_OVERLAYS).map(serializeLayerRef).join(",");
 }
 
+/**
+ * Разобрать список слоёв подсветки (`objects=parking,pedestrian`) — чистые slug'и, без категорий.
+ *
+ * Мусор и повторы игнорируются, число слоёв не ограничиваем: тумблеров может быть включено сколько
+ * угодно — это выбор пользователя, а не нарушение контракта. Ограничение одно и техническое: слой
+ * должен быть в реестре, и это проверяет карта (неизвестный slug просто не нарисуется).
+ */
+export function parseObjectLayers(value: string | null | undefined): string[] {
+  const slugs: string[] = [];
+  for (const part of (value ?? "").split(",")) {
+    const slug = part.trim().toLowerCase();
+    if (!REF_PATTERN.test(slug)) continue;
+    if (slugs.includes(slug)) continue;
+    slugs.push(slug);
+  }
+  return slugs;
+}
+
+export function serializeObjectLayers(slugs: readonly string[]): string {
+  return slugs.join(",");
+}
+
 /** Свойства ячейки для MapLibre: значение базового слоя плюс значения наложений. */
 export type CellProperties = {
   h3: string;

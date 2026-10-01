@@ -1,5 +1,5 @@
 import { DEFAULT_RADIUS_M, isValidRadius } from "@/lib/around";
-import { COMPETITORS_SLUG, parseLayerRef } from "@/lib/layers";
+import { COMPETITORS_SLUG, parseLayerRef, parseObjectLayers } from "@/lib/layers";
 
 /**
  * Состояние интерфейса в адресной строке (shareable URL, раздел 4.3 ТЗ).
@@ -16,8 +16,6 @@ export type UrlState = {
   category: string | null;
   /** Базовый слой (красит карту): `slug` или `slug:category` (ADR 0013). */
   base: string | null;
-  /** Наложения через запятую: не больше двух (ADR 0013). */
-  overlays: string | null;
   /** H3-индекс выбранной ячейки. */
   cell: string | null;
   /** Ячейки в сравнении через запятую (2–5): сравнением делятся так же, как видом карты. */
@@ -32,10 +30,11 @@ export type UrlState = {
   /** Радиус в метрах: значим только вместе с точкой. */
   radius: number | null;
   /**
-   * Слой, объекты которого подсвечены на карте (`objects=<slug>`).
+   * Слои, объекты которых подсвечены на карте (`objects=parking,pedestrian`).
    *
-   * Один слой за раз: пять заливок и контуров друг поверх друга нечитаемы (план §6). Остальные
-   * включённые слои продолжают давать числа в карточке ячейки.
+   * Тумблеров может быть включено сколько угодно: каждый слой рисуется своим цветом, а разбираться
+   * в наплыве контуров помогает зум, а не запрет. Числа по всем слоям живут в сводке по зоне и от
+   * этого переключателя не зависят.
    */
   objects: string | null;
   res: 8 | 9 | null;
@@ -51,7 +50,6 @@ export const EMPTY_URL_STATE: UrlState = {
   city: null,
   category: null,
   base: null,
-  overlays: null,
   cell: null,
   compare: null,
   tab: null,
@@ -178,7 +176,6 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   // Базовый слой и наложения — «слои» (ADR 0013). `category` остаётся ради старых ссылок: те, что
   // уже разошлись по людям, должны продолжать открывать ту же карту.
   const base = parseString(params.get("base"));
-  const overlays = parseString(params.get("overlays"));
   const cell = parseH3Cell(params.get("cell"));
   const zoom = parseZoom(params.get("zoom"));
   const res = zoom !== null ? resolutionFromZoom(zoom) : parseResolution(params.get("res"));
@@ -186,12 +183,13 @@ export function parseUrlState(source: string | Record<string, string | string[] 
   // Точка и радиус: радиус без точки бессмысленен, поэтому без `around` он игнорируется
   const around = parseCenter(params.get("around"));
   const radius = around ? parseRadius(params.get("radius")) : null;
+  // Слои подсветки — список slug'ов: включено может быть сколько угодно (см. `objects` в UrlState)
+  const objects = parseObjectLayers(params.get("objects"));
 
   return {
     city,
     category,
     base,
-    overlays,
     cell,
     compare: compare.length > 0 ? compare.join(",") : null,
     // Вкладка: явный `tab`, иначе выводим из состояния — старые ссылки без него работают
@@ -201,13 +199,13 @@ export function parseUrlState(source: string | Record<string, string | string[] 
         base,
         compare: compare.length > 0 ? compare.join(",") : null,
         around,
-        objects: parseString(params.get("objects")),
+        objects: objects.join(","),
         // До вкладок профиль был отдельным экраном: ссылки с `profile=1` открывают вкладку «Город»
         profile: params.get("profile") === "1",
       }),
     around,
     radius,
-    objects: parseString(params.get("objects")),
+    objects: objects.length > 0 ? objects.join(",") : null,
     res,
     zoom,
     // Центр имеет смысл только вместе с зумом: иначе карта остаётся привязана к границам города
@@ -228,7 +226,6 @@ export function buildSearch(state: Partial<UrlState>): string {
   const city = parseString(state.city);
   const category = parseString(state.category);
   const base = parseString(state.base);
-  const overlays = parseString(state.overlays);
   const cell = parseH3Cell(state.cell);
   const compare = parseCellList(state.compare);
 
@@ -240,7 +237,6 @@ export function buildSearch(state: Partial<UrlState>): string {
   // (вызывающий код передаёт `category` только для слоя, у которого есть категории)
   if (category) push("category", category);
   if (base) push("base", base);
-  if (overlays) push("overlays", overlays);
   if (cell) push("cell", cell);
   if (compare.length > 0) push("compare", compare.join(","));
   // Точка радиуса и его значение: радиус по умолчанию не пишем, чтобы ссылка оставалась короткой

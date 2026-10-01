@@ -80,14 +80,13 @@ export type MapViewProps = {
    */
   outlineCells?: string[];
   /**
-   * Объекты слоя своей геометрией — «проверить слой глазами» (план §6).
+   * Объекты слоёв своей геометрией — «проверить слой глазами» (план §6).
    *
-   * Один слой за раз: объекты рисуются поверх заливки ячеек и не имеют своей шкалы плотности — они
-   * показывают наличие объектов, а числа по-прежнему живут в карточке ячейки.
+   * Слоёв может быть включено сколько угодно: у каждого свой цвет из реестра, объекты рисуются поверх
+   * заливки ячеек и не имеют своей шкалы плотности — они показывают наличие объектов, а числа живут в
+   * сводке по зоне.
    */
-  objects?: LayerObjectsResponse | null;
-  /** Цвет объектов — цвет слоя из реестра: слой и его объекты должны читаться как одно. */
-  objectsColor?: string;
+  objectLayers?: ObjectLayer[];
   /** Круг радиуса: показывает, какие именно метры посчитала панель «что вокруг точки». */
   around?: { lat: number; lon: number; radiusM: number } | null;
   /** Клик по карте в режиме радиуса: наружу уходят координаты точки под курсором. */
@@ -107,6 +106,19 @@ export type MapViewProps = {
   ref?: Ref<MapViewHandle>;
 };
 
+/**
+ * Слой подсветки: объекты одного слоя своим цветом.
+ *
+ * Данные приходят отдельными запросами по границам вида, поэтому список — это то, что уже загружено:
+ * слой без данных на карте не появится, и это честнее, чем рисовать пустоту вместо объектов.
+ */
+export type ObjectLayer = {
+  slug: string;
+  /** Цвет слоя из реестра: слой и его объекты должны читаться как одно. */
+  color: string;
+  data: LayerObjectsResponse;
+};
+
 const CELLS_SOURCE = "cells";
 const CELLS_LAYER = "cells-fill";
 const SELECTED_SOURCE = "cells-selected";
@@ -120,12 +132,18 @@ const AROUND_FILL_LAYER = "around-circle-fill";
 const AROUND_LINE_LAYER = "around-circle-line";
 const AROUND_POINT_LAYER = "around-center-point";
 const AROUND_COLOR = "#b45309";
-/** Объекты слоя: полигоны — контуром, линии — линией, точки — точками (план §6). */
-const OBJECTS_SOURCE = "layer-objects";
-const OBJECTS_FILL_LAYER = "layer-objects-fill";
-const OBJECTS_LINE_LAYER = "layer-objects-line";
-const OBJECTS_POINT_LAYER = "layer-objects-point";
-const OBJECTS_DEFAULT_COLOR = "#334155";
+/** Типы отрисовки объектов: полигон, линия, точка — порядок задаёт и порядок наложения на карте. */
+const OBJECT_KINDS = ["fill", "line", "point"] as const;
+type ObjectKind = (typeof OBJECT_KINDS)[number];
+
+/** Источник объектов слоя: у каждого включённого слоя он свой, поэтому в имени есть slug. */
+function objectsSourceId(slug: string): string {
+  return `layer-objects-${slug}`;
+}
+
+function objectsLayerId(slug: string, kind: ObjectKind): string {
+  return `layer-objects-${slug}-${kind}`;
+}
 /** Цвет точек совпадает с акцентом выбранной ячейки: видно, что они связаны. */
 const POI_COLOR = "#1d4ed8";
 
@@ -246,8 +264,7 @@ export default function MapView({
   onViewChange,
   selectedCell = null,
   outlineCells = [],
-  objects = null,
-  objectsColor = OBJECTS_DEFAULT_COLOR,
+  objectLayers = [],
   around = null,
   onPointSelect,
   category = null,
@@ -265,8 +282,9 @@ export default function MapView({
   const selectedRef = useRef(selectedCell);
   const aroundRef = useRef(around);
   const pointSelectRef = useRef(onPointSelect);
-  const objectsRef = useRef(objects);
-  const objectsColorRef = useRef(objectsColor);
+  const objectLayersRef = useRef(objectLayers);
+  /** Какие слои подсветки сейчас на карте: по этому списку убираем выключенные. */
+  const objectsSlugsRef = useRef<string[]>([]);
 
   const [webglMissing, setWebglMissing] = useState(false);
   const [basemapWarning, setBasemapWarning] = useState<string | null>(null);
@@ -280,8 +298,7 @@ export default function MapView({
   selectedRef.current = selectedCell;
   aroundRef.current = around;
   pointSelectRef.current = onPointSelect;
-  objectsRef.current = objects;
-  objectsColorRef.current = objectsColor;
+  objectLayersRef.current = objectLayers;
 
   useImperativeHandle(
     ref,
@@ -366,39 +383,79 @@ export default function MapView({
   );
 
   /**
-   * Объекты слоя: один источник, три слоя отрисовки — по типу геометрии.
+   * Объекты слоёв: у каждого включённого слоя свой источник и три слоя отрисовки — по типу геометрии.
    *
    * Полигоны рисуем контуром и очень слабой заливкой: полноценная заливка спорила бы с тепловой картой,
    * которая отвечает на главный вопрос «где конкурентов много». Объекты слоя показывают наличие, а не
    * количество.
    */
-  const applyObjects = useCallback(
-    (map: MapLibreMap, data: LayerObjectsResponse | null, color: string) => {
-      const source = map.getSource(OBJECTS_SOURCE) as GeoJSONSource | undefined;
-      if (!source) return;
+  const applyObjects = useCallback((map: MapLibreMap, list: ObjectLayer[]) => {
+    // Выключенные слои убираем вместе с источниками: иначе они остались бы на карте до перезагрузки
+    const wanted = new Set(list.map((item) => item.slug));
+    for (const slug of objectsSlugsRef.current) {
+      if (wanted.has(slug)) continue;
+      for (const kind of OBJECT_KINDS) {
+        const layerId = objectsLayerId(slug, kind);
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      }
+      if (map.getSource(objectsSourceId(slug))) map.removeSource(objectsSourceId(slug));
+    }
+    objectsSlugsRef.current = list.map((item) => item.slug);
 
-      source.setData(
-        (data
-          ? { type: "FeatureCollection", features: data.features }
-          : emptyCollection()) as unknown as GeoJSON.FeatureCollection,
-      );
+    for (const item of list) {
+      const sourceId = objectsSourceId(item.slug);
+      if (!map.getSource(sourceId)) {
+        map.addSource(sourceId, { type: "geojson", data: emptyCollection() });
+      }
+      if (!map.getLayer(objectsLayerId(item.slug, "fill"))) {
+        map.addLayer({
+          id: objectsLayerId(item.slug, "fill"),
+          type: "fill",
+          source: sourceId,
+          filter: ["==", ["geometry-type"], "Polygon"],
+          paint: { "fill-color": item.color, "fill-opacity": 0.12 },
+        });
+      }
+      if (!map.getLayer(objectsLayerId(item.slug, "line"))) {
+        map.addLayer({
+          id: objectsLayerId(item.slug, "line"),
+          type: "line",
+          source: sourceId,
+          filter: ["in", ["geometry-type"], ["literal", ["Polygon", "LineString"]]],
+          paint: { "line-color": item.color, "line-width": 1.5 },
+        });
+      }
+      if (!map.getLayer(objectsLayerId(item.slug, "point"))) {
+        map.addLayer({
+          id: objectsLayerId(item.slug, "point"),
+          type: "circle",
+          source: sourceId,
+          filter: ["==", ["geometry-type"], "Point"],
+          paint: {
+            "circle-radius": 3.5,
+            "circle-color": item.color,
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-width": 1,
+          },
+        });
+      }
 
-      if (map.getLayer(OBJECTS_FILL_LAYER)) {
-        map.setPaintProperty(OBJECTS_FILL_LAYER, "fill-color", color);
+      const source = map.getSource(sourceId) as GeoJSONSource | undefined;
+      source?.setData({
+        type: "FeatureCollection",
+        features: item.data.features,
+      } as unknown as GeoJSON.FeatureCollection);
+    }
+
+    // Объекты держим поверх заливки и контуров: иначе гекс спрячет то, ради чего слой включён.
+    // Порядок «полигоны → линии → точки» одинаков для всех слоёв: точка не теряется под чужим контуром
+    for (const kind of OBJECT_KINDS) {
+      for (const item of list) {
+        const layerId = objectsLayerId(item.slug, kind);
+        if (map.getLayer(layerId)) map.moveLayer(layerId);
       }
-      if (map.getLayer(OBJECTS_LINE_LAYER)) {
-        map.setPaintProperty(OBJECTS_LINE_LAYER, "line-color", color);
-      }
-      if (map.getLayer(OBJECTS_POINT_LAYER)) {
-        map.setPaintProperty(OBJECTS_POINT_LAYER, "circle-color", color);
-      }
-      // Объекты держим поверх заливки и контуров: иначе гекс спрячет то, ради чего слой включён
-      for (const layer of [OBJECTS_FILL_LAYER, OBJECTS_LINE_LAYER, OBJECTS_POINT_LAYER]) {
-        if (map.getLayer(layer)) map.moveLayer(layer);
-      }
-    },
-    [],
-  );
+    }
+  }, []);
 
   const reportView = useCallback((map: MapLibreMap) => {
     const center = map.getCenter();
@@ -507,34 +564,8 @@ export default function MapView({
         pointSelectRef.current?.({ lat: event.lngLat.lat, lon: event.lngLat.lng });
       });
 
-      // Объекты слоя: один источник, отрисовка по типу геометрии (план §6)
-      map.addSource(OBJECTS_SOURCE, { type: "geojson", data: emptyCollection() });
-      map.addLayer({
-        id: OBJECTS_FILL_LAYER,
-        type: "fill",
-        source: OBJECTS_SOURCE,
-        filter: ["==", ["geometry-type"], "Polygon"],
-        paint: { "fill-color": OBJECTS_DEFAULT_COLOR, "fill-opacity": 0.12 },
-      });
-      map.addLayer({
-        id: OBJECTS_LINE_LAYER,
-        type: "line",
-        source: OBJECTS_SOURCE,
-        filter: ["in", ["geometry-type"], ["literal", ["Polygon", "LineString"]]],
-        paint: { "line-color": OBJECTS_DEFAULT_COLOR, "line-width": 1.5 },
-      });
-      map.addLayer({
-        id: OBJECTS_POINT_LAYER,
-        type: "circle",
-        source: OBJECTS_SOURCE,
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 3.5,
-          "circle-color": OBJECTS_DEFAULT_COLOR,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 1,
-        },
-      });
+      // Объекты включённых слоёв создаёт и наполняет `applyObjects`: набор слоёв у каждого пользователя
+      // свой, поэтому источники именуются по slug'у, а не живут одним общим
 
       map.on("mouseenter", CELLS_LAYER, () => {
         map.getCanvas().style.cursor = "pointer";
@@ -617,8 +648,9 @@ export default function MapView({
         aroundRef.current?.lon ?? null,
         aroundRef.current?.radiusM ?? null,
       );
-      // Объекты слоя тоже: после смены стиля источник пустой, а данные уже загружены
-      applyObjects(map, objectsRef.current, objectsColorRef.current);
+      // Объекты слоёв тоже: после смены стиля источников нет, а данные уже загружены
+      objectsSlugsRef.current = [];
+      applyObjects(map, objectLayersRef.current);
       map.resize();
       handleZoomEnd();
     });
@@ -754,16 +786,16 @@ export default function MapView({
   }, [aroundLat, aroundLon, aroundRadiusM, applyAround, grid]);
 
   /**
-   * Объекты слоя: те же данные, что пришли из API, кладём в источник карты.
+   * Объекты слоёв: те же данные, что пришли из API, кладём в источники карты.
    *
    * Отдельный эффект от `applyGrid`: сетка и объекты приходят разными запросами (объекты — по границам
    * вида), и связывать их значило бы перерисовывать одно при обновлении другого.
    */
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getSource(OBJECTS_SOURCE)) return;
-    applyObjects(map, objects, objectsColor);
-  }, [objects, objectsColor, applyObjects, grid]);
+    if (!map || !map.isStyleLoaded()) return;
+    applyObjects(map, objectLayers);
+  }, [objectLayers, applyObjects, grid]);
   if (webglMissing) {
     return (
       <div className="map__canvas" data-testid="webgl-missing">
