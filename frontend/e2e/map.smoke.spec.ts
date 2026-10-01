@@ -821,6 +821,71 @@ test("виджеты зон: топ зон и классы плотности с
   await expect(page.getByTestId("cell-widgets")).toBeVisible();
 });
 
+test("отчёт открывается по ссылке и печатается как документ", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/report?city=tomsk&category=cafe&debug=1");
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  // Это документ, а не интерфейс карты: заголовок, карта, таблицы, легенда
+  await expect(page.getByTestId("report-title")).toContainText("Конкуренты");
+  await expect(page.getByTestId("report-map")).toBeVisible();
+  await expect(page.getByTestId("report-zones")).toBeVisible();
+  await expect(page.getByTestId("report-legend")).toBeVisible();
+  // На странице отчёта нет панели вкладок: это отдельный документ, а не сцена приложения
+  await expect(page.getByTestId("tab-competitors")).toHaveCount(0);
+
+  // Обязательный минимум: атрибуция, дата выгрузки и оговорка «не прогноз» (ADR 0015)
+  await expect(page.getByTestId("report")).toContainText("OpenStreetMap");
+  await expect(page.getByTestId("report-disclaimer")).toContainText("наблюдения");
+  await expect(page.getByTestId("report")).not.toContainText("перегрев");
+
+  // Кнопка «Скачать PDF» вызывает диалог печати (в тесте подменяем сам вызов)
+  await page.evaluate(() => {
+    window.print = () => {
+      (window as unknown as { __printed?: boolean }).__printed = true;
+    };
+  });
+  await page.getByTestId("report-print").click();
+  expect(await page.evaluate(() => Boolean((window as unknown as { __printed?: boolean }).__printed))).toBe(
+    true,
+  );
+});
+
+test("отчёт печатает инструмент «Радиус» таблицей «что вокруг точки»", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/report?city=tomsk&category=cafe&tab=tools&around=56.4847,84.9482&radius=300");
+
+  await expect(page.getByTestId("report-title")).toContainText("радиус 300 м");
+  await expect(page.getByTestId("report-around")).toBeVisible();
+  await expect(page.getByTestId("report-around")).toContainText("Парковки");
+});
+
+test("меню «Экспорт» открывает отчёт отдельной вкладкой с тем же состоянием", async ({ page, context }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(MAP_URL);
+  await waitForStyle(page);
+  await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
+    timeout: 30_000,
+  });
+
+  const [report] = await Promise.all([
+    context.waitForEvent("page"),
+    (async () => {
+      await page.getByTestId("export").click();
+      await page.getByTestId("export-report").click();
+    })(),
+  ]);
+  await report.waitForLoadState();
+
+  // Состояние сцены переносится в отчёт: ссылка описывает то же, что было на экране
+  expect(report.url()).toContain("/report?");
+  expect(report.url()).toContain("category=cafe");
+  await expect(report.getByTestId("report-title")).toBeVisible();
+  await report.close();
+});
+
 test("постоянная строка атрибуции видна и не перекрывается легендой", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(MAP_URL);

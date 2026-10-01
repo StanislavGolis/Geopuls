@@ -10,6 +10,8 @@ export type ExportMenuProps = {
   busy?: boolean;
   onExportPng: () => void;
   onExportCsv: () => void;
+  /** Отчёт для печати в PDF: открывается отдельной страницей с тем же состоянием сцены. */
+  onExportReport: () => void;
 };
 
 /**
@@ -18,7 +20,13 @@ export type ExportMenuProps = {
  * Доступность: `aria-haspopup="menu"`, `aria-expanded`, закрытие по `Escape` с возвратом фокуса
  * на кнопку, перемещение между пунктами стрелками, закрытие по клику вне меню.
  */
-export default function ExportMenu({ disabled = false, busy = false, onExportPng, onExportCsv }: ExportMenuProps) {
+export default function ExportMenu({
+  disabled = false,
+  busy = false,
+  onExportPng,
+  onExportCsv,
+  onExportReport,
+}: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -106,6 +114,22 @@ export default function ExportMenu({ disabled = false, busy = false, onExportPng
             onClick={() => run(onExportCsv)}
           >
             CSV ячеек
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu__item"
+            data-testid="export-report"
+            ref={(element) => {
+              itemsRef.current[2] = element;
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") focusItem(0);
+              if (event.key === "ArrowUp") focusItem(1);
+            }}
+            onClick={() => run(onExportReport)}
+          >
+            Отчёт (PDF)
           </button>
         </div>
       )}

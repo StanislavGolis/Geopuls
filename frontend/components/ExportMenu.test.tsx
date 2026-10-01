@@ -6,10 +6,16 @@ import ExportMenu from "./ExportMenu";
 function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   const onExportPng = vi.fn();
   const onExportCsv = vi.fn();
+  const onExportReport = vi.fn();
   const view = render(
-    <ExportMenu onExportPng={onExportPng} onExportCsv={onExportCsv} {...overrides} />,
+    <ExportMenu
+      onExportPng={onExportPng}
+      onExportCsv={onExportCsv}
+      onExportReport={onExportReport}
+      {...overrides}
+    />,
   );
-  return { ...view, onExportPng, onExportCsv };
+  return { ...view, onExportPng, onExportCsv, onExportReport };
 }
 
 describe("ExportMenu", () => {
@@ -35,6 +41,15 @@ describe("ExportMenu", () => {
     fireEvent.click(screen.getByTestId("export"));
     fireEvent.click(screen.getByTestId("export-csv"));
     expect(onExportCsv).toHaveBeenCalledTimes(1);
+  });
+
+  it("отдаёт отчёт для печати в PDF третьим пунктом меню", () => {
+    const { onExportReport } = renderMenu();
+
+    fireEvent.click(screen.getByTestId("export"));
+    fireEvent.click(screen.getByTestId("export-report"));
+
+    expect(onExportReport).toHaveBeenCalledTimes(1);
   });
 
   it("помечает состояние для скринридеров", () => {

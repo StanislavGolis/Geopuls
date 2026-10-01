@@ -290,10 +290,14 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
   }, [res]);
 
   // Состояние интерфейса в адресной строке: ссылкой можно поделиться (replaceState — без спама истории)
-  useEffect(() => {
-    if (!citySlug || !baseRef || typeof window === "undefined") return;
-
-    const search = buildSearch({
+  /**
+   * Текущее состояние сцены в виде query-строки: одно и то же для адресной строки и для отчёта.
+   *
+   * Общая функция, а не два похожих блока: ссылка «Поделиться» и отчёт обязаны описывать одну сцену.
+   */
+  const buildCurrentSearch = useCallback(() => {
+    if (!baseRef) return "";
+    return buildSearch({
       city: citySlug,
       // Вкладка пишется, когда она не основная — ссылка открывает ту же сцену (ADR 0016)
       tab,
@@ -304,10 +308,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       // Показатель инфраструктуры пишем без категории: у этих слоёв вариант один.
       // Если пользователь ещё не выбирал показатель, в ссылку идёт тот, которым карта уже покрашена:
       // ссылка должна описывать то, что на экране, а не то, что мы собирались показать
-      base:
-        tab === "infrastructure"
-          ? (infraSlug ?? baseRef?.slug ?? null)
-          : serializeLayerRef(baseRef),
+      base: tab === "infrastructure" ? (infraSlug ?? baseRef.slug) : serializeLayerRef(baseRef),
       overlays: infoLayersKey || null,
       cell: selectedCell,
       compare: compareRefs.join(",") || null,
@@ -317,7 +318,6 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
       zoom: view?.zoom ?? null,
       center: view ? { lat: view.lat, lon: view.lon } : null,
     });
-    window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
   }, [
     citySlug,
     tab,
@@ -332,6 +332,15 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     res,
     view,
   ]);
+
+  // Состояние интерфейса в адресной строке: ссылкой можно поделиться (replaceState — без спама истории)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const search = buildCurrentSearch();
+    if (!search) return;
+    window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
+  }, [buildCurrentSearch]);
 
   const city = useMemo(() => cities.find((item) => item.slug === citySlug) ?? null, [cities, citySlug]);
   const categoryNames = useMemo(
@@ -619,6 +628,18 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
     downloadText(buildGridCsv(grid, exportContext), exportFileName(exportContext, "csv"));
   }, [grid, exportContext]);
 
+  /**
+   * Отчёт для печати в PDF: открываем отдельной вкладкой с тем же состоянием сцены.
+   *
+   * В новой вкладке, а не в текущей: карта с её зумом и выбранной зоной остаётся на месте — человек
+   * вернётся к ней после печати.
+   */
+  const handleExportReport = useCallback(() => {
+    const search = buildCurrentSearch();
+    if (!search) return;
+    window.open(`/report?${search}`, "_blank", "noopener");
+  }, [buildCurrentSearch]);
+
   return (
     <>
       <header className="topbar">
@@ -662,6 +683,7 @@ export default function MapExplorer({ styleUrl, initialState }: MapExplorerProps
             busy={exporting}
             onExportPng={handleExportPng}
             onExportCsv={handleExportCsv}
+            onExportReport={handleExportReport}
           />
         </div>
 

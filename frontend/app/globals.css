@@ -1789,6 +1789,220 @@ button:disabled {
   pointer-events: none;
 }
 
+/* ── Отчёт для печати (план развития, этап 5) ─────────────────────────────── */
+.report {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.report__head {
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid var(--text-primary);
+}
+
+.report__brand {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.report__title {
+  margin: 6px 0 0;
+  font-size: 22px;
+}
+
+.report__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.report__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.report__print {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.report__hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.report__link {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.report__section {
+  margin-bottom: 18px;
+}
+
+.report__section-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.report__map {
+  position: relative;
+  height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Карта в отчёте занимает свой блок: то же правило, что на главной, но без обёртки `.map` */
+.report__map .map__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Контролы карты в документе не нужны: это печать, а не работа с картой */
+.report__map .maplibregl-ctrl {
+  display: none;
+}
+
+.report__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+
+.report__legend-caption {
+  flex-basis: 100%;
+  color: var(--text-muted);
+}
+
+.report__legend-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.report__swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.report__legend-note {
+  color: var(--text-muted);
+}
+
+.report__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.report__table th,
+.report__table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.report__table thead th {
+  background: var(--bg-subtle);
+  font-weight: 600;
+}
+
+.report__table tbody th {
+  font-weight: 500;
+}
+
+.report__unit {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.report__note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.report__footer {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.report__footer-line {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.report__disclaimer {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.report__error,
+.report__loading {
+  padding: 24px 20px;
+}
+
+/*
+ * Печать: остаётся документ, уходят кнопки. Разрывы страниц запрещаем внутри карты и табличных секций:
+ * разорванная таблица из двух строк читается хуже, чем перенесённая целиком.
+ */
+@media print {
+  .report {
+    max-width: none;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  .report__actions {
+    display: none;
+  }
+
+  .report__map {
+    height: 360px;
+    break-inside: avoid;
+  }
+
+  .report__section {
+    break-inside: avoid;
+  }
+
+  .report__table {
+    font-size: 11px;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}
+
 /* Возвращаемся в мобильный блок: ниже идут надстройки для узких экранов */
 @media (max-width: 640px) {
 .skeleton__hex,
