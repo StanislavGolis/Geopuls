@@ -54,7 +54,7 @@ const rendered = await page.evaluate(() => ({
 const legend = await page.locator(".legend").first().innerText();
 const attribution = await page.locator('[data-testid="attribution"]').first().innerText();
 
-// 4. Клик по непустой ячейке открывает панель объектов: точку берём из геометрии самой ячейки
+// 4. Клик по непустой ячейке открывает сводку по зоне: точку берём из геометрии самой ячейки
 const marker = await page.evaluate(() => {
   const map = window.__geopulsMap;
   const feature = map
@@ -76,17 +76,17 @@ const marker = await page.evaluate(() => {
 let panel = "панель не открыта";
 if (marker) {
   await page.mouse.click(marker.x, marker.y);
-  await page.waitForSelector(".poi-panel", { timeout: 30_000 });
+  await page.waitForSelector(".zone-panel", { timeout: 30_000 });
   // Ждём не открытия панели, а загрузки списка: именно на этом шаге API отвечал 404 с чужим res
   await page.waitForFunction(
     () => {
-      const text = document.querySelector(".poi-panel")?.textContent ?? "";
+      const text = document.querySelector(".zone-panel")?.textContent ?? "";
       return text.length > 0 && !text.includes("Загружаем");
     },
     null,
     { timeout: 30_000 },
   );
-  panel = await page.locator(".poi-panel").first().innerText();
+  panel = await page.locator(".zone-panel").first().innerText();
 }
 
 await page.screenshot({ path: shot, fullPage: false });
