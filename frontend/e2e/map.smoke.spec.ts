@@ -803,6 +803,13 @@ test("виджеты зон: топ зон и классы плотности с
   await page.waitForFunction(() => Boolean(window.__geopulsMap?.getLayer("cells-fill")), null, {
     timeout: 30_000,
   });
+  // Данные должны дойти до источника: подсветка класса берёт контуры из уже нарисованной сетки, и на
+  // медленной сети (прод) клик по классу до загрузки честно ничего не подсвечивал — это был флейк
+  await page.waitForFunction(
+    () => (window.__geopulsMap?.querySourceFeatures("cells")?.length ?? 0) > 0,
+    null,
+    { timeout: 30_000 },
+  );
 
   // Панель открыта по умолчанию: это ответ на «где выбранного больше всего»
   const widgets = page.getByTestId("cell-widgets");
