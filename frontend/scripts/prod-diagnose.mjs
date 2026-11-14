@@ -7,7 +7,7 @@
 import { chromium } from "playwright";
 
 const url =
-  process.env.PROD_URL ?? "https://201.34.158.13.sslip.io/?city=tomsk&category=cafe&debug=1";
+  process.env.PROD_URL ?? "https://<VPS_HOST>.sslip.io/?city=tomsk&category=cafe&debug=1";
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 

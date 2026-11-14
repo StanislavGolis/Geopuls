@@ -24,7 +24,7 @@ from pathlib import Path
 
 import paramiko
 
-HOST = os.environ.get("VPS_HOST", "201.34.158.13")
+HOST = os.environ.get("VPS_HOST", "<VPS_HOST>")
 USER = os.environ.get("VPS_USER", "root")
 PORT = int(os.environ.get("VPS_PORT", "22"))
 PASSWORD = os.environ.get("VPS_PASSWORD", "")

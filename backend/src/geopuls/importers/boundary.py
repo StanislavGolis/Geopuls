@@ -26,7 +26,7 @@ from geopuls.console import enable_utf8_console
 
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 #: Требование политики Nominatim: понятный User-Agent с контактом.
-USER_AGENT = "Geopuls/0.1 (city boundary import; contact: stanislav.golis@yandex.ru)"
+USER_AGENT = "Geopuls/0.1 (city boundary import; contact: ops@example.com)"
 #: Таймаут одного запроса, секунды.
 REQUEST_TIMEOUT = 30.0
 #: Разрешённые типы геометрии: город может быть одним полигоном или мультиполигоном.

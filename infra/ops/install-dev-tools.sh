@@ -16,7 +16,7 @@ REPO_URL="${REPO_URL:-https://github.com/StanislavGolis/Geopuls.git}"
 WORK_DIR="${WORK_DIR:-/root/work}"
 PWSH_VERSION="${PWSH_VERSION:-7.6.6}"
 GIT_USER_NAME="${GIT_USER_NAME:-StanislavGolis}"
-GIT_USER_EMAIL="${GIT_USER_EMAIL:-stanislav.golis@yandex.ru}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-ops@example.com}"
 EXTENSIONS=(
     saoudrizwan.claude-dev   # Cline — агент, которым пользуемся
     ms-python.python         # Python: тесты и отладка бэкенда

@@ -22,8 +22,8 @@ param(
     [switch]$AllowDirty,
     [switch]$SkipCheck,
     [int]$TimeoutMinutes = 15,
-    [string]$BaseUrl = $(if ($env:PROD_URL) { $env:PROD_URL } else { 'https://201.34.158.13.sslip.io' }),
-    [string]$VpsHost = $(if ($env:VPS_HOST) { $env:VPS_HOST } else { '201.34.158.13' })
+    [string]$BaseUrl = $(if ($env:PROD_URL) { $env:PROD_URL } else { 'https://<VPS_HOST>.sslip.io' }),
+    [string]$VpsHost = $(if ($env:VPS_HOST) { $env:VPS_HOST } else { '<VPS_HOST>' })
 )
 
 $ErrorActionPreference = 'Stop'

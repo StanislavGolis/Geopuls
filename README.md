@@ -12,7 +12,7 @@
 
 ## Статус
 
-MVP собран и развёрнут на проде: **https://201.34.158.13.sslip.io** (HTTPS, Let's Encrypt; мониторинг,
+MVP собран и развёрнут на проде: **https://<VPS_HOST>.sslip.io** (HTTPS, Let's Encrypt; мониторинг,
 бэкапы и расписание обновления данных — в cron). Релиз — тег **`v0.1.0-mvp`**. См. `docs/deploy.md`
 и `docs/acceptance/`.
 

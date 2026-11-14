@@ -7,7 +7,7 @@
 import { chromium } from "playwright";
 
 const url =
-  process.env.PROD_URL ?? "https://201.34.158.13.sslip.io/?city=tomsk&category=cafe&debug=1";
+  process.env.PROD_URL ?? "https://<VPS_HOST>.sslip.io/?city=tomsk&category=cafe&debug=1";
 const shot = process.env.PROD_SHOT ?? "../data/processed/prod-smoke.png";
 
 const browser = await chromium.launch();
